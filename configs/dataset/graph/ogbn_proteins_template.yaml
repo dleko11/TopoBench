@@ -1,0 +1,40 @@
+loader:
+  _target_: topobench.data.loaders.OGBNDatasetLoader
+  parameters:
+    data_domain: graph
+    data_type: OGBN
+    data_name: ogbn-proteins
+    data_dir: ${paths.data_dir}/${dataset.loader.parameters.data_domain}/${dataset.loader.parameters.data_type}
+    memory_type: on_disk_cluster
+    cluster:
+      num_parts: 256
+      recursive: false
+      keep_inter_cluster_edges: false
+      sparse_format: csr
+    stream:
+      q: 32
+      num_workers: 0
+      pin_memory: false
+      with_edge_attr: false
+      precompute_split_parts: true
+    dtype_policy: float32
+parameters:
+  num_features: 8
+  num_classes: 112
+  num_nodes: 132534
+  task: classification
+  loss_type: cross_entropy
+  monitor_metric: accuracy
+  task_level: node
+split_params:
+  learning_setting: transductive
+  data_split_dir: ${paths.data_dir}/data_splits/${dataset.loader.parameters.data_name}
+  data_seed: 0
+  split_type: random
+  k: 10
+  train_prop: 0.5
+  standardize: false
+dataloader_params:
+  batch_size: 1
+  num_workers: 0
+  pin_memory: false

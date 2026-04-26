@@ -1,0 +1,33 @@
+# USE python train.py to run this dataset
+
+# Dataset loader config
+loader:
+  _target_: topobench.data.loaders.MoleculeDatasetLoader
+  parameters:
+    data_domain: graph
+    data_type: PPI # Changed from ZINC to PPI
+    data_name: PPI # Changed from ZINC to PPI
+    data_dir: ${paths.data_dir}/${dataset.loader.parameters.data_domain}/${dataset.loader.parameters.data_type}
+
+# Dataset parameters
+parameters:
+  num_features: 50       # PPI dataset has 50 node features
+  num_classes: 121       # PPI has 121 classes for multi-label classification
+  task: classification # Changed from 'regression'
+  loss_type: bce_with_logits      # Binary Cross-Entropy is suitable for multi-label tasks
+  monitor_metric: f1     # F1-score is a common metric for this task
+  task_level: node       # PPI is a node-level prediction task
+
+# Splits
+split_params:
+  learning_setting: transductive
+  data_split_dir: ${paths.data_dir}/data_splits/${dataset.loader.parameters.data_name}
+  data_seed: 0
+  split_type: 'random' # PPI also uses predefined splits ('train', 'val', 'test')
+
+# Dataloader parameters
+dataloader_params:
+  batch_size: 2 # PPI consists of a few large graphs, so a small batch size is used
+  num_workers: 0
+  pin_memory: False
+  persistent_workers: False

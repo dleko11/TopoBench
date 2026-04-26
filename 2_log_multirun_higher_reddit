@@ -1,0 +1,240 @@
+0
+[[36m2026-03-28 21:04:50,033[0m][[35mHYDRA[0m] Launching 1 jobs locally[0m
+[[36m2026-03-28 21:04:50,033[0m][[35mHYDRA[0m] 	#0 : model=simplicial/scn dataset=graph/reddit_for_partitioning optimizer.parameters.lr=0.001 optimizer.parameters.weight_decay=0 model.feature_encoder.out_channels=128 model.feature_encoder.proj_dropout=0 dataset.dataloader_params.batch_size=1 dataset.split_params.data_seed=0 trainer.max_epochs=1500 trainer.min_epochs=50 trainer.check_val_every_n_epoch=1 callbacks.early_stopping.patience=130 logger=tensorboard trainer=gpu[0m
+[[36m2026-03-28 21:04:50,241[0m][[34mtopobench.utils.utils[0m][[32mINFO[0m] - [rank: 0] Enforcing tags! <cfg.extras.enforce_tags=True>[0m
+[[36m2026-03-28 21:04:50,251[0m][[34mtopobench.utils.utils[0m][[32mINFO[0m] - [rank: 0] Printing config tree with Rich! <cfg.extras.print_config=True>[0m
+[[36m2026-03-28 21:04:50,252[0m][[34mtopobench.utils.rich_utils[0m][[33mWARNING[0m] - [rank: 0] Field 'data' not found in config. Skipping 'data' config printing...[0m
+CONFIG
+├── model
+│   └── _target_: topobench.model.TBModel                                       
+│       model_name: scn                                                         
+│       model_domain: simplicial                                                
+│       feature_encoder:                                                        
+│         _target_: topobench.nn.encoders.AllCellFeatureEncoder                 
+│         encoder_name: AllCellFeatureEncoder                                   
+│         in_channels:                                                          
+│         - 602                                                                 
+│         - 602                                                                 
+│         - 602                                                                 
+│         out_channels: 128                                                     
+│         proj_dropout: 0                                                       
+│         selected_dimensions:                                                  
+│         - 0                                                                   
+│         - 1                                                                   
+│         - 2                                                                   
+│       backbone:                                                               
+│         _target_: topomodelx.nn.simplicial.scn2.SCN2                          
+│         in_channels_0: 128                                                    
+│         in_channels_1: 128                                                    
+│         in_channels_2: 128                                                    
+│         n_layers: 1                                                           
+│       backbone_wrapper:                                                       
+│         _target_: topobench.nn.wrappers.SCNWrapper                            
+│         _partial_: true                                                       
+│         wrapper_name: SCNWrapper                                              
+│         out_channels: 128                                                     
+│         num_cell_dimensions: 3                                                
+│       readout:                                                                
+│         _target_: topobench.nn.readouts.PropagateSignalDown                   
+│         readout_name: PropagateSignalDown                                     
+│         num_cell_dimensions: 3                                                
+│         hidden_dim: 128                                                       
+│         out_channels: 41                                                      
+│         task_level: node                                                      
+│         pooling_type: sum                                                     
+│       compile: false                                                          
+│                                                                               
+├── callbacks
+│   └── model_checkpoint:                                                       
+│         _target_: lightning.pytorch.callbacks.ModelCheckpoint                 
+│         dirpath: /gpustorage2/lukab/tb/TopoBench/logs/train/multiruns/2026-03-
+│         filename: epoch_{epoch:03d}                                           
+│         monitor: val/accuracy                                                 
+│         verbose: false                                                        
+│         save_last: false                                                      
+│         save_top_k: 1                                                         
+│         mode: max                                                             
+│         auto_insert_metric_name: false                                        
+│         save_weights_only: false                                              
+│         every_n_train_steps: null                                             
+│         train_time_interval: null                                             
+│         every_n_epochs: null                                                  
+│         save_on_train_epoch_end: null                                         
+│       early_stopping:                                                         
+│         _target_: lightning.pytorch.callbacks.EarlyStopping                   
+│         monitor: val/accuracy                                                 
+│         patience: 130                                                         
+│         mode: max                                                             
+│         min_delta: 0.0                                                        
+│         verbose: true                                                         
+│         strict: true                                                          
+│         check_finite: true                                                    
+│         stopping_threshold: null                                              
+│         divergence_threshold: null                                            
+│         check_on_train_epoch_end: null                                        
+│       model_summary:                                                          
+│         _target_: lightning.pytorch.callbacks.RichModelSummary                
+│         max_depth: -1                                                         
+│       model_timer:                                                            
+│         _target_: topobench.callbacks.timer_callback.PipelineTimer            
+│       learning_rate_monitor:                                                  
+│         _target_: lightning.pytorch.callbacks.LearningRateMonitor             
+│         logging_interval: epoch                                               
+│                                                                               
+├── logger
+│   └── tensorboard:                                                            
+│         _target_: lightning.pytorch.loggers.tensorboard.TensorBoardLogger     
+│         save_dir: /gpustorage2/lukab/tb/TopoBench/logs/train/multiruns/2026-03
+│         name: null                                                            
+│         log_graph: false                                                      
+│         default_hp_metric: true                                               
+│         prefix: ''                                                            
+│                                                                               
+├── trainer
+│   └── _target_: lightning.pytorch.trainer.Trainer                             
+│       default_root_dir: /gpustorage2/lukab/tb/TopoBench/logs/train/multiruns/2
+│       min_epochs: 50                                                          
+│       max_epochs: 1500                                                        
+│       accelerator: gpu                                                        
+│       devices:                                                                
+│       - 0                                                                     
+│       check_val_every_n_epoch: 1                                              
+│       deterministic: false                                                    
+│       inference_mode: false                                                   
+│                                                                               
+├── paths
+│   └── root_dir: /gpustorage2/lukab/tb/TopoBench                               
+│       data_dir: /gpustorage2/lukab/tb/TopoBench/datasets                      
+│       log_dir: /gpustorage2/lukab/tb/TopoBench/logs                           
+│       output_dir: /gpustorage2/lukab/tb/TopoBench/logs/train/multiruns/2026-03
+│       work_dir: /gpustorage2/lukab/tb/TopoBench                               
+│                                                                               
+├── extras
+│   └── ignore_warnings: false                                                  
+│       enforce_tags: true                                                      
+│       print_config: true                                                      
+│                                                                               
+├── task_name
+│   └── train                                                                   
+├── tags
+│   └── ['dev']                                                                 
+├── train
+│   └── True                                                                    
+├── test
+│   └── True                                                                    
+├── ckpt_path
+│   └── None                                                                    
+├── seed
+│   └── 42                                                                      
+├── deterministic
+│   └── False                                                                   
+├── dataset
+│   └── loader:                                                                 
+│         _target_: topobench.data.loaders.RedditDatasetLoader                  
+│         parameters:                                                           
+│           data_domain: graph                                                  
+│           data_type: Reddit_on_disk                                           
+│           data_name: Reddit                                                   
+│           data_dir: /gpustorage2/lukab/tb/TopoBench/datasets/graph/Reddit_on_d
+│           memory_type: on_disk_cluster                                        
+│           cluster:                                                            
+│             num_parts: 1500                                                   
+│             recursive: false                                                  
+│             keep_inter_cluster_edges: false                                   
+│             sparse_format: csr                                                
+│           stream:                                                             
+│             q: 20                                                             
+│             q_test: 100                                                       
+│             q_val: 100                                                        
+│             num_workers: 0                                                    
+│             pin_memory: false                                                 
+│             with_edge_attr: false                                             
+│             precompute_split_parts: true                                      
+│           dtype_policy: float32                                               
+│       parameters:                                                             
+│         num_features: 602                                                     
+│         num_classes: 41                                                       
+│         num_nodes: 232965                                                     
+│         task: classification                                                  
+│         loss_type: cross_entropy                                              
+│         monitor_metric: accuracy                                              
+│         task_level: node                                                      
+│       split_params:                                                           
+│         learning_setting: transductive                                        
+│         data_split_dir: /gpustorage2/lukab/tb/TopoBench/datasets/data_splits/R
+│         data_seed: 0                                                          
+│         split_type: random                                                    
+│         k: 10                                                                 
+│         train_prop: 0.5                                                       
+│         standardize: false                                                    
+│       dataloader_params:                                                      
+│         batch_size: 1                                                         
+│         num_workers: 0                                                        
+│         pin_memory: false                                                     
+│                                                                               
+├── transforms
+│   └── graph2simplicial_lifting:                                               
+│         _target_: topobench.transforms.data_transform.DataTransform           
+│         transform_type: lifting                                               
+│         transform_name: SimplicialCliqueLiftingIG                             
+│         complex_dim: 3                                                        
+│         preserve_edge_attr: false                                             
+│         signed: false                                                         
+│         feature_lifting: ProjectionSum                                        
+│         neighborhoods: null                                                   
+│                                                                               
+├── optimizer
+│   └── _target_: topobench.optimizer.TBOptimizer                               
+│       optimizer_id: Adam                                                      
+│       parameters:                                                             
+│         lr: 0.001                                                             
+│         weight_decay: 0                                                       
+│                                                                               
+├── loss
+│   └── _target_: topobench.loss.TBLoss                                         
+│       dataset_loss:                                                           
+│         task: classification                                                  
+│         loss_type: cross_entropy                                              
+│       modules_losses:                                                         
+│         feature_encoder: null                                                 
+│         backbone: null                                                        
+│         readout: null                                                         
+│                                                                               
+└── evaluator
+    └── _target_: topobench.evaluator.evaluator.TBEvaluator                     
+        task: classification                                                    
+        task_level: node                                                        
+        num_classes: 41                                                         
+        metrics:                                                                
+        - accuracy                                                              
+        - precision                                                             
+        - recall                                                                
+        - auroc                                                                 
+                                                                                
+Seed set to 42
+[[36m2026-03-28 21:04:50,330[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating loader <topobench.data.loaders.RedditDatasetLoader>[0m
+/home/lukab/miniconda3/envs/tb/lib/python3.11/site-packages/outdated/__init__.py:36: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import parse_version
+[[36m2026-03-28 21:04:51,256[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating preprocessor...[0m
+58716344 58716344
+[[36m2026-03-28 21:04:51,267[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating model <topobench.model.TBModel>[0m
+[[36m2026-03-28 21:04:51,305[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating callbacks...[0m
+[[36m2026-03-28 21:04:51,306[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.ModelCheckpoint>[0m
+[[36m2026-03-28 21:04:51,309[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.EarlyStopping>[0m
+[[36m2026-03-28 21:04:51,311[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.RichModelSummary>[0m
+[[36m2026-03-28 21:04:51,311[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <topobench.callbacks.timer_callback.PipelineTimer>[0m
+[[36m2026-03-28 21:04:51,312[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating callback <lightning.pytorch.callbacks.LearningRateMonitor>[0m
+[[36m2026-03-28 21:04:51,312[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating loggers...[0m
+[[36m2026-03-28 21:04:51,312[0m][[34mtopobench.utils.instantiators[0m][[32mINFO[0m] - [rank: 0] Instantiating logger <lightning.pytorch.loggers.tensorboard.TensorBoardLogger>[0m
+[[36m2026-03-28 21:04:51,314[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Instantiating trainer <lightning.pytorch.trainer.Trainer>[0m
+Trainer already configured with model summary callbacks: [<class 'lightning.pytorch.callbacks.rich_model_summary.RichModelSummary'>]. Skipping setting a default `ModelSummary` callback.
+GPU available: True (cuda), used: True
+TPU available: False, using: 0 TPU cores
+HPU available: False, using: 0 HPUs
+[[36m2026-03-28 21:04:51,330[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Logging hyperparameters![0m
+[[36m2026-03-28 21:04:51,397[0m][[34mtopobench.run[0m][[32mINFO[0m] - [rank: 0] Starting training![0m
+/home/lukab/miniconda3/envs/tb/lib/python3.11/site-packages/lightning/pytorch/utilities/parsing.py:44: Attribute 'backbone_wrapper' removed from hparams because it cannot be pickled. You can suppress this warning by setting `self.save_hyperparameters(ignore=['backbone_wrapper'])`.
+You are using a CUDA device ('NVIDIA A100-PCIE-40GB') that has Tensor Cores. To properly utilize them, you should set `torch.set_float32_matmul_precision('medium' | 'high')` which will trade-off precision for performance. For more details, read https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html#torch.set_float32_matmul_precision
+/gpustorage2/lukab/tb/TopoBench/topobench/dataloader/dataload_cluster.py:167: UserWarning: The given NumPy array is not writable, and PyTorch does not support non-writable tensors. This means writing to this tensor will result in undefined behavior. You may want to copy the array to protect its data or make it writable before converting it to a tensor. This type of warning will be suppressed for the rest of this program. (Triggered internally at ../torch/csrc/utils/tensor_numpy.cpp:206.)
+  xs.append(torch.from_numpy(self.X[s:e]))
+2_sub_multirun_higher_reddit.sh: line 33: 1254344 Killed                  python3 -m topobench --multirun model=simplicial/scn dataset=graph/reddit_for_partitioning optimizer.parameters.lr=0.001 optimizer.parameters.weight_decay=0 model.feature_encoder.out_channels=128 model.feature_encoder.proj_dropout=0 dataset.dataloader_params.batch_size=1 dataset.split_params.data_seed=0 trainer.max_epochs=1500 trainer.min_epochs=50 trainer.check_val_every_n_epoch=1 callbacks.early_stopping.patience=130 logger=tensorboard trainer=gpu

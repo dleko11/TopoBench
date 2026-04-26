@@ -1,0 +1,1439 @@
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1341])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=2] strict_recall=0.9039, partial_recall=0.9988
+Hyperedges: 2341 match exactly, 249 are missing in the clustered pipeline (245 explained as partition-induced splits of larger golden hyperedges and 18 completely lost), and 245 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=2] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=4, num_parts=2
+Run failed for bs=8, num_parts=2
+Run failed for bs=16, num_parts=2
+Run failed for bs=32, num_parts=2
+Run failed for bs=64, num_parts=2
+Run failed for bs=128, num_parts=2
+Run failed for bs=256, num_parts=2
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([685])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=4] strict_recall=0.8255, partial_recall=0.9977
+Hyperedges: 2138 match exactly, 452 are missing in the clustered pipeline (445 explained as partition-induced splits of larger golden hyperedges and 44 completely lost), and 445 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1367])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=4] strict_recall=0.8876, partial_recall=0.9977
+Hyperedges: 2299 match exactly, 291 are missing in the clustered pipeline (284 explained as partition-induced splits of larger golden hyperedges and 17 completely lost), and 284 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=4] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=8, num_parts=4
+Run failed for bs=16, num_parts=4
+Run failed for bs=32, num_parts=4
+Run failed for bs=64, num_parts=4
+Run failed for bs=128, num_parts=4
+Run failed for bs=256, num_parts=4
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([343])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=8] strict_recall=0.7595, partial_recall=0.9965
+Hyperedges: 1967 match exactly, 623 are missing in the clustered pipeline (613 explained as partition-induced splits of larger golden hyperedges and 59 completely lost), and 613 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([691])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=8] strict_recall=0.8486, partial_recall=0.9973
+Hyperedges: 2198 match exactly, 392 are missing in the clustered pipeline (385 explained as partition-induced splits of larger golden hyperedges and 31 completely lost), and 385 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1359])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=8] strict_recall=0.9019, partial_recall=0.9992
+Hyperedges: 2336 match exactly, 254 are missing in the clustered pipeline (252 explained as partition-induced splits of larger golden hyperedges and 16 completely lost), and 252 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=8] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=16, num_parts=8
+Run failed for bs=32, num_parts=8
+Run failed for bs=64, num_parts=8
+Run failed for bs=128, num_parts=8
+Run failed for bs=256, num_parts=8
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 16
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([171])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=16] strict_recall=0.6903, partial_recall=0.9961
+Hyperedges: 1788 match exactly, 802 are missing in the clustered pipeline (783 explained as partition-induced splits of larger golden hyperedges and 94 completely lost), and 783 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([335])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=16] strict_recall=0.7575, partial_recall=0.9965
+Hyperedges: 1962 match exactly, 628 are missing in the clustered pipeline (614 explained as partition-induced splits of larger golden hyperedges and 66 completely lost), and 614 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([667])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=16] strict_recall=0.8382, partial_recall=0.9985
+Hyperedges: 2171 match exactly, 419 are missing in the clustered pipeline (414 explained as partition-induced splits of larger golden hyperedges and 42 completely lost), and 414 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1342])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=16] strict_recall=0.8915, partial_recall=0.9988
+Hyperedges: 2309 match exactly, 281 are missing in the clustered pipeline (278 explained as partition-induced splits of larger golden hyperedges and 18 completely lost), and 278 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=16, num_parts=16] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=32, num_parts=16
+Run failed for bs=64, num_parts=16
+Run failed for bs=128, num_parts=16
+Run failed for bs=256, num_parts=16
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 32
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([87])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=32] strict_recall=0.6151, partial_recall=0.9958
+Hyperedges: 1593 match exactly, 997 are missing in the clustered pipeline (976 explained as partition-induced splits of larger golden hyperedges and 161 completely lost), and 976 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 16
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([173])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=32] strict_recall=0.6981, partial_recall=0.9965
+Hyperedges: 1808 match exactly, 782 are missing in the clustered pipeline (767 explained as partition-induced splits of larger golden hyperedges and 87 completely lost), and 767 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([340])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=32] strict_recall=0.7618, partial_recall=0.9965
+Hyperedges: 1973 match exactly, 617 are missing in the clustered pipeline (604 explained as partition-induced splits of larger golden hyperedges and 58 completely lost), and 604 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([678])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=32] strict_recall=0.8405, partial_recall=0.9985
+Hyperedges: 2177 match exactly, 413 are missing in the clustered pipeline (407 explained as partition-induced splits of larger golden hyperedges and 31 completely lost), and 407 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1361])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=16, num_parts=32] strict_recall=0.9008, partial_recall=0.9992
+Hyperedges: 2333 match exactly, 257 are missing in the clustered pipeline (254 explained as partition-induced splits of larger golden hyperedges and 19 completely lost), and 254 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=32, num_parts=32] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=64, num_parts=32
+Run failed for bs=128, num_parts=32
+Run failed for bs=256, num_parts=32
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 64
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([43])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=64] strict_recall=0.5537, partial_recall=0.9907
+Hyperedges: 1434 match exactly, 1156 are missing in the clustered pipeline (1114 explained as partition-induced splits of larger golden hyperedges and 241 completely lost), and 1114 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 32
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([86])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=64] strict_recall=0.6158, partial_recall=0.9919
+Hyperedges: 1595 match exactly, 995 are missing in the clustered pipeline (961 explained as partition-induced splits of larger golden hyperedges and 182 completely lost), and 961 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 16
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([172])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=64] strict_recall=0.6923, partial_recall=0.9931
+Hyperedges: 1793 match exactly, 797 are missing in the clustered pipeline (769 explained as partition-induced splits of larger golden hyperedges and 122 completely lost), and 769 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([342])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=64] strict_recall=0.7564, partial_recall=0.9942
+Hyperedges: 1959 match exactly, 631 are missing in the clustered pipeline (612 explained as partition-induced splits of larger golden hyperedges and 75 completely lost), and 612 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([680])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=16, num_parts=64] strict_recall=0.8405, partial_recall=0.9977
+Hyperedges: 2177 match exactly, 413 are missing in the clustered pipeline (407 explained as partition-induced splits of larger golden hyperedges and 39 completely lost), and 407 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1350])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=32, num_parts=64] strict_recall=0.8927, partial_recall=0.9985
+Hyperedges: 2312 match exactly, 278 are missing in the clustered pipeline (274 explained as partition-induced splits of larger golden hyperedges and 13 completely lost), and 274 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=64, num_parts=64] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=128, num_parts=64
+Run failed for bs=256, num_parts=64
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 128
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([21])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=128] strict_recall=0.3131, partial_recall=0.8618
+Hyperedges: 811 match exactly, 1779 are missing in the clustered pipeline (1318 explained as partition-induced splits of larger golden hyperedges and 808 completely lost), and 1318 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 64
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([42])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=128] strict_recall=0.3614, partial_recall=0.8788
+Hyperedges: 936 match exactly, 1654 are missing in the clustered pipeline (1252 explained as partition-induced splits of larger golden hyperedges and 716 completely lost), and 1252 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 32
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([84])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=128] strict_recall=0.4247, partial_recall=0.8961
+Hyperedges: 1100 match exactly, 1490 are missing in the clustered pipeline (1158 explained as partition-induced splits of larger golden hyperedges and 596 completely lost), and 1158 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 16
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([170])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=128] strict_recall=0.4649, partial_recall=0.9139
+Hyperedges: 1204 match exactly, 1386 are missing in the clustered pipeline (1109 explained as partition-induced splits of larger golden hyperedges and 520 completely lost), and 1109 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([339])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=16, num_parts=128] strict_recall=0.5270, partial_recall=0.9382
+Hyperedges: 1365 match exactly, 1225 are missing in the clustered pipeline (1025 explained as partition-induced splits of larger golden hyperedges and 389 completely lost), and 1025 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([680])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=32, num_parts=128] strict_recall=0.6707, partial_recall=0.9625
+Hyperedges: 1737 match exactly, 853 are missing in the clustered pipeline (728 explained as partition-induced splits of larger golden hyperedges and 232 completely lost), and 728 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1356])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=64, num_parts=128] strict_recall=0.7517, partial_recall=0.9788
+Hyperedges: 1947 match exactly, 643 are missing in the clustered pipeline (578 explained as partition-induced splits of larger golden hyperedges and 150 completely lost), and 578 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=128, num_parts=128] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Run failed for bs=256, num_parts=128
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 256
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([11])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=1, num_parts=256] strict_recall=0.2232, partial_recall=0.8255
+Hyperedges: 578 match exactly, 2012 are missing in the clustered pipeline (1352 explained as partition-induced splits of larger golden hyperedges and 1039 completely lost), and 1352 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 128
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([22])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=2, num_parts=256] strict_recall=0.2521, partial_recall=0.8386
+Hyperedges: 653 match exactly, 1937 are missing in the clustered pipeline (1342 explained as partition-induced splits of larger golden hyperedges and 963 completely lost), and 1342 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 64
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([43])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=4, num_parts=256] strict_recall=0.2819, partial_recall=0.8595
+Hyperedges: 730 match exactly, 1860 are missing in the clustered pipeline (1340 explained as partition-induced splits of larger golden hyperedges and 876 completely lost), and 1340 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 32
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([85])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=8, num_parts=256] strict_recall=0.3185, partial_recall=0.8784
+Hyperedges: 825 match exactly, 1765 are missing in the clustered pipeline (1321 explained as partition-induced splits of larger golden hyperedges and 792 completely lost), and 1321 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 16
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([172])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=16, num_parts=256] strict_recall=0.3660, partial_recall=0.9008
+Hyperedges: 948 match exactly, 1642 are missing in the clustered pipeline (1292 explained as partition-induced splits of larger golden hyperedges and 674 completely lost), and 1292 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 8
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([339])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=32, num_parts=256] strict_recall=0.4332, partial_recall=0.9239
+Hyperedges: 1122 match exactly, 1468 are missing in the clustered pipeline (1208 explained as partition-induced splits of larger golden hyperedges and 522 completely lost), and 1208 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 4
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([679])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=64, num_parts=256] strict_recall=0.5741, partial_recall=0.9537
+Hyperedges: 1487 match exactly, 1103 are missing in the clustered pipeline (956 explained as partition-induced splits of larger golden hyperedges and 347 completely lost), and 956 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 2
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([1360])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=128, num_parts=256] strict_recall=0.6873, partial_recall=0.9745
+Hyperedges: 1780 match exactly, 810 are missing in the clustered pipeline (736 explained as partition-induced splits of larger golden hyperedges and 214 completely lost), and 736 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+Transform parameters are the same, using existing data_dir: /Users/davidleko/Desktop/Projects/TopoBench/datasets/graph/cocitation/Cora/graph2hypergraph_lifting/3613529153
+Golden keys: ['edge_index', 'incidence_hyperedges', 'num_hyperedges', 'test_mask', 'train_mask', 'val_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+Post-batch transform: DataTransform()
+Num candidate batches: 1
+First candidate keys: ['batch_0', 'batch_hyperedges', 'edge_index', 'global_nid', 'incidence_hyperedges', 'num_hyperedges', 'num_nodes', 'supervised_mask', 'train_mask', 'x', 'x_0', 'x_hyperedges', 'y']
+First candidate global_nid shape: torch.Size([2708])
+Loaded perm_to_global of shape torch.Size([2708])
+  sanity max|x_0_batch - x_0_golden[true_gids]| = 0.0
+[bs=256, num_parts=256] strict_recall=1.0000, partial_recall=1.0000
+Hyperedges: 2590 match exactly, 0 are missing in the clustered pipeline (0 explained as partition-induced splits of larger golden hyperedges and 0 completely lost), and 0 appear only in the clustered pipeline (0 not explainable as subsets of golden hyperedges).
+{(1, 2): {'gold_n': 2590, 'cand_n': 2586, 'strict_match': 2341, 'partial_covered': 2587, 'strict_recall': 0.9038610038610039, 'partial_recall': 0.9988416988416988}, (2, 2): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 4): {'gold_n': 2590, 'cand_n': 2583, 'strict_match': 2138, 'partial_covered': 2584, 'strict_recall': 0.8254826254826255, 'partial_recall': 0.9976833976833976}, (2, 4): {'gold_n': 2590, 'cand_n': 2583, 'strict_match': 2299, 'partial_covered': 2584, 'strict_recall': 0.8876447876447876, 'partial_recall': 0.9976833976833976}, (4, 4): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 8): {'gold_n': 2590, 'cand_n': 2580, 'strict_match': 1967, 'partial_covered': 2581, 'strict_recall': 0.7594594594594595, 'partial_recall': 0.9965250965250966}, (2, 8): {'gold_n': 2590, 'cand_n': 2583, 'strict_match': 2198, 'partial_covered': 2583, 'strict_recall': 0.8486486486486486, 'partial_recall': 0.9972972972972973}, (4, 8): {'gold_n': 2590, 'cand_n': 2588, 'strict_match': 2336, 'partial_covered': 2588, 'strict_recall': 0.901930501930502, 'partial_recall': 0.9992277992277993}, (8, 8): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 16): {'gold_n': 2590, 'cand_n': 2571, 'strict_match': 1788, 'partial_covered': 2580, 'strict_recall': 0.6903474903474903, 'partial_recall': 0.9961389961389961}, (2, 16): {'gold_n': 2590, 'cand_n': 2576, 'strict_match': 1962, 'partial_covered': 2581, 'strict_recall': 0.7575289575289575, 'partial_recall': 0.9965250965250966}, (4, 16): {'gold_n': 2590, 'cand_n': 2585, 'strict_match': 2171, 'partial_covered': 2586, 'strict_recall': 0.8382239382239383, 'partial_recall': 0.9984555984555985}, (8, 16): {'gold_n': 2590, 'cand_n': 2587, 'strict_match': 2309, 'partial_covered': 2587, 'strict_recall': 0.8915057915057915, 'partial_recall': 0.9988416988416988}, (16, 16): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 32): {'gold_n': 2590, 'cand_n': 2569, 'strict_match': 1593, 'partial_covered': 2579, 'strict_recall': 0.6150579150579151, 'partial_recall': 0.9957528957528957}, (2, 32): {'gold_n': 2590, 'cand_n': 2575, 'strict_match': 1808, 'partial_covered': 2581, 'strict_recall': 0.698069498069498, 'partial_recall': 0.9965250965250966}, (4, 32): {'gold_n': 2590, 'cand_n': 2577, 'strict_match': 1973, 'partial_covered': 2581, 'strict_recall': 0.7617760617760618, 'partial_recall': 0.9965250965250966}, (8, 32): {'gold_n': 2590, 'cand_n': 2584, 'strict_match': 2177, 'partial_covered': 2586, 'strict_recall': 0.8405405405405405, 'partial_recall': 0.9984555984555985}, (16, 32): {'gold_n': 2590, 'cand_n': 2587, 'strict_match': 2333, 'partial_covered': 2588, 'strict_recall': 0.9007722007722008, 'partial_recall': 0.9992277992277993}, (32, 32): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 64): {'gold_n': 2590, 'cand_n': 2548, 'strict_match': 1434, 'partial_covered': 2566, 'strict_recall': 0.5536679536679536, 'partial_recall': 0.9907335907335907}, (2, 64): {'gold_n': 2590, 'cand_n': 2556, 'strict_match': 1595, 'partial_covered': 2569, 'strict_recall': 0.6158301158301158, 'partial_recall': 0.9918918918918919}, (4, 64): {'gold_n': 2590, 'cand_n': 2562, 'strict_match': 1793, 'partial_covered': 2572, 'strict_recall': 0.6922779922779922, 'partial_recall': 0.993050193050193}, (8, 64): {'gold_n': 2590, 'cand_n': 2571, 'strict_match': 1959, 'partial_covered': 2575, 'strict_recall': 0.7563706563706564, 'partial_recall': 0.9942084942084942}, (16, 64): {'gold_n': 2590, 'cand_n': 2584, 'strict_match': 2177, 'partial_covered': 2584, 'strict_recall': 0.8405405405405405, 'partial_recall': 0.9976833976833976}, (32, 64): {'gold_n': 2590, 'cand_n': 2586, 'strict_match': 2312, 'partial_covered': 2586, 'strict_recall': 0.8926640926640926, 'partial_recall': 0.9984555984555985}, (64, 64): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 128): {'gold_n': 2590, 'cand_n': 2129, 'strict_match': 811, 'partial_covered': 2232, 'strict_recall': 0.3131274131274131, 'partial_recall': 0.8617760617760618}, (2, 128): {'gold_n': 2590, 'cand_n': 2188, 'strict_match': 936, 'partial_covered': 2276, 'strict_recall': 0.3613899613899614, 'partial_recall': 0.8787644787644787}, (4, 128): {'gold_n': 2590, 'cand_n': 2258, 'strict_match': 1100, 'partial_covered': 2321, 'strict_recall': 0.4247104247104247, 'partial_recall': 0.8961389961389962}, (8, 128): {'gold_n': 2590, 'cand_n': 2313, 'strict_match': 1204, 'partial_covered': 2367, 'strict_recall': 0.4648648648648649, 'partial_recall': 0.9138996138996139}, (16, 128): {'gold_n': 2590, 'cand_n': 2390, 'strict_match': 1365, 'partial_covered': 2430, 'strict_recall': 0.527027027027027, 'partial_recall': 0.9382239382239382}, (32, 128): {'gold_n': 2590, 'cand_n': 2465, 'strict_match': 1737, 'partial_covered': 2493, 'strict_recall': 0.6706563706563706, 'partial_recall': 0.9625482625482625}, (64, 128): {'gold_n': 2590, 'cand_n': 2525, 'strict_match': 1947, 'partial_covered': 2535, 'strict_recall': 0.7517374517374518, 'partial_recall': 0.9787644787644788}, (128, 128): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}, (1, 256): {'gold_n': 2590, 'cand_n': 1930, 'strict_match': 578, 'partial_covered': 2138, 'strict_recall': 0.22316602316602316, 'partial_recall': 0.8254826254826255}, (2, 256): {'gold_n': 2590, 'cand_n': 1995, 'strict_match': 653, 'partial_covered': 2172, 'strict_recall': 0.25212355212355214, 'partial_recall': 0.8386100386100386}, (4, 256): {'gold_n': 2590, 'cand_n': 2070, 'strict_match': 730, 'partial_covered': 2226, 'strict_recall': 0.28185328185328185, 'partial_recall': 0.8594594594594595}, (8, 256): {'gold_n': 2590, 'cand_n': 2146, 'strict_match': 825, 'partial_covered': 2275, 'strict_recall': 0.3185328185328185, 'partial_recall': 0.8783783783783784}, (16, 256): {'gold_n': 2590, 'cand_n': 2240, 'strict_match': 948, 'partial_covered': 2333, 'strict_recall': 0.36602316602316604, 'partial_recall': 0.9007722007722008}, (32, 256): {'gold_n': 2590, 'cand_n': 2330, 'strict_match': 1122, 'partial_covered': 2393, 'strict_recall': 0.4332046332046332, 'partial_recall': 0.9239382239382239}, (64, 256): {'gold_n': 2590, 'cand_n': 2443, 'strict_match': 1487, 'partial_covered': 2470, 'strict_recall': 0.5741312741312742, 'partial_recall': 0.9536679536679536}, (128, 256): {'gold_n': 2590, 'cand_n': 2516, 'strict_match': 1780, 'partial_covered': 2524, 'strict_recall': 0.6872586872586872, 'partial_recall': 0.9745173745173745}, (256, 256): {'gold_n': 2590, 'cand_n': 2590, 'strict_match': 2590, 'partial_covered': 2590, 'strict_recall': 1.0, 'partial_recall': 1.0}}
+Saved combined heatmap: cora_hypergraph_final_strict_vs_partial.png
+Saved strict heatmap: cora_hypergraph_strict.png
