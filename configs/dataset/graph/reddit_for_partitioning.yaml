@@ -22,8 +22,8 @@ loader:
       q: 20                               # clusters per batch (Cluster-GCN "bsize")
       #q_test: 100
       #q_val: 100
-      val_batches: 25
-      test_batches: 25
+      val_batches: 75 # 25
+      test_batches: 75 # 25
       num_workers: 0                      # increase if needed
       pin_memory: false                   # true if you want faster H2D
       with_edge_attr: false               # WebKB has no edge_attr

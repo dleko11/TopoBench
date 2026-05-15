@@ -1,2 +1,2 @@
 defaults:
-  - /transforms/liftings/graph2cell@graph2cell_lifting: cycle #cycle_ig
+  - /transforms/liftings/graph2cell@graph2cell_lifting: cycle_selective # cycle # cycle_ig
