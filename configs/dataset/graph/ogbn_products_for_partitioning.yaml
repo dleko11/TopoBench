@@ -14,8 +14,8 @@ loader:
       sparse_format: csr
     stream:
       q: 20
-      val_batches: 25
-      test_batches: 25
+      val_batches: 75
+      test_batches: 75
       num_workers: 0
       pin_memory: false
       with_edge_attr: false

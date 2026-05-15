@@ -12,7 +12,7 @@ MODELS   = ["simplicial/topotune"]
 class TestPipeline:
     """Test pipeline for a particular dataset and model."""
 
-    def setup_method(pythself):
+    def setup_method(self):
         """Setup method."""
         hydra.core.global_hydra.GlobalHydra.instance().clear()
 
@@ -27,7 +27,7 @@ class TestPipeline:
                         f"model={MODEL}",
                         f"dataset={DATASET}",
                         # keep CI fast & deterministic
-                        # "trainer=mps",
+                        "trainer=mps",
                         "trainer.max_epochs=10",
                         "trainer.min_epochs=1",
                         "trainer.check_val_every_n_epoch=1",
@@ -37,7 +37,8 @@ class TestPipeline:
                         # write under a tmp test path
                         "paths=test",
                         # reuse the same callback config used elsewhere in tests
-                        "callbacks=default"
+                        "callbacks=default",
+                        "logger=csv",
                     ],
                     return_hydra_config=True,
                 )

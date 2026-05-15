@@ -15,8 +15,8 @@ export MKL_NUM_THREADS=$num_threads
 
 python -m topobench \
     --multirun \
-    model=cell/cwn,cell/cccn,simplicial/scn,simplicial/sccnn_custom \
-    dataset=graph/tolokers \
+    model=hypergraph/unignn2 \
+    dataset=graph/ogbn_products_for_partitioning \
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
     model.feature_encoder.out_channels=128 \
@@ -26,8 +26,8 @@ python -m topobench \
     trainer.max_epochs=1500 \
     trainer.min_epochs=50 \
     trainer.check_val_every_n_epoch=1 \
-    callbacks.early_stopping.patience=130 \
-    logger=csv \
+    callbacks.early_stopping.patience=20 \
+    logger=wandb \
+    logger.wandb.project=ogbn_products \
     trainer=gpu \
     +trainer.enable_progress_bar=false
-

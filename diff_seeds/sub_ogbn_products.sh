@@ -13,9 +13,9 @@ export MKL_NUM_THREADS=$num_threads
 
 #PYPATH=/home/lukab/miniconda3/envs/mace_env3/bin/
 
-python3 -m topobench \
+python -m topobench \
     --multirun \
-    model=graph/gcn_cluster,hypergraph/edgnn,hypergraph/unignn2 \
+    model=hypergraph/unignn \
     dataset=graph/ogbn_products_for_partitioning \
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
@@ -27,5 +27,7 @@ python3 -m topobench \
     trainer.min_epochs=50 \
     trainer.check_val_every_n_epoch=1 \
     callbacks.early_stopping.patience=50 \
-    logger=tensorboard \
+    logger=wandb \
+    logger.wandb.project=ogbn_products \
     trainer=gpu \
+    +trainer.enable_progress_bar=false
