@@ -189,10 +189,6 @@ class CellCycleLiftingSelective(Graph2CellLifting):
             normalize_laplacians=self.normalize_laplacians,
         )
 
-        if self.normalize_laplacians:
-            import logging
-            logging.getLogger(__name__).info("Using CPU pre-normalized laplacians for CCCN operators.")
-
         # Features
         lifted_topology["x_0"] = data.x
 
