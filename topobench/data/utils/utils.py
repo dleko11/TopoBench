@@ -1165,6 +1165,42 @@ def build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, num_edges, device=N
     adj = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_edges, num_edges), device=device).coalesce()
     return binarize_sparse(adj)
 
+def gcn_normalize_sparse_tensor(
+    A: torch.Tensor,
+    add_self_loops: bool = False,
+    eps: float = 1e-12,
+) -> torch.Tensor:
+    """
+    CPU-side equivalent of PyG GCNConv normalization for a sparse COO tensor.
+    Intended to reproduce gcn_norm(..., add_self_loops=False) for weighted
+    sparse operators, so CCCN can use GCNConv(normalize=False) without changing
+    the old normalized behavior.
+    """
+    if A.layout != torch.sparse_coo:
+        raise ValueError(f"Expected torch.sparse_coo, got {A.layout}")
+        
+    A = A.coalesce()
+    if A._nnz() == 0:
+        return A
+        
+    idx = A.indices()
+    vals = A.values()
+    
+    row, col = idx[0], idx[1]
+    
+    # Compute degree
+    deg = torch.zeros(A.size(0), dtype=vals.dtype, device=A.device)
+    deg.scatter_add_(0, row, vals)
+    
+    # PyG degree formula: deg_inv_sqrt = deg.pow(-0.5)
+    deg_inv_sqrt = deg.pow(-0.5)
+    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0.0)
+    
+    norm_vals = deg_inv_sqrt[row] * vals * deg_inv_sqrt[col]
+    
+    return torch.sparse_coo_tensor(idx, norm_vals, A.size(), device=A.device).coalesce()
+
+
 def build_edge_cycle_laplacian_from_cycle_edges(cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000):
     """Return sparse COO equivalent to unsigned B2 @ B2.T."""
     if len(cycle_edges) == 0:
@@ -1253,6 +1289,7 @@ def get_connectivity_from_incidences_selective(
     adjacency_strategy="pairs",
     required_keys=None,
     chunk_size=1000,
+    normalize_laplacians=False,
 ):
     """Memory-aware selective connectivity builder.
     
@@ -1320,6 +1357,9 @@ def get_connectivity_from_incidences_selective(
                 uplap = safe_sparse_mm(inc2, inc2.T)
                 if not signed:
                     uplap = abs_sparse(uplap)
+            
+            if normalize_laplacians:
+                uplap = gcn_normalize_sparse_tensor(uplap, add_self_loops=False)
                     
             connectivity[t] = uplap
             if legacy_keys:
@@ -1331,6 +1371,10 @@ def get_connectivity_from_incidences_selective(
             downlap = safe_sparse_mm(inc1.T, inc1)
             if not signed:
                 downlap = abs_sparse(downlap)
+                
+            if normalize_laplacians:
+                downlap = gcn_normalize_sparse_tensor(downlap, add_self_loops=False)
+                
             connectivity[t] = downlap
             if legacy_keys:
                 connectivity["down_laplacian_1"] = downlap

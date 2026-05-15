@@ -79,12 +79,13 @@ class CellCycleLiftingSelective(Graph2CellLifting):
         Additional arguments for the class.
     """
 
-    def __init__(self, max_cell_length=None, adjacency_strategy="pairs", chunk_size=1000, **kwargs):
+    def __init__(self, max_cell_length=None, adjacency_strategy="pairs", chunk_size=1000, normalize_laplacians=False, **kwargs):
         super().__init__(**kwargs)
         self.complex_dim = 2
         self.max_cell_length = max_cell_length
         self.adjacency_strategy = adjacency_strategy
         self.chunk_size = chunk_size
+        self.normalize_laplacians = normalize_laplacians
 
     def lift_topology(self, data: torch_geometric.data.Data) -> dict:
         r"""Find cycles of a graph and construct selective connectivity.
@@ -185,7 +186,12 @@ class CellCycleLiftingSelective(Graph2CellLifting):
             cycle_edges=cycle_edges,
             adjacency_strategy=self.adjacency_strategy,
             chunk_size=self.chunk_size,
+            normalize_laplacians=self.normalize_laplacians,
         )
+
+        if self.normalize_laplacians:
+            import logging
+            logging.getLogger(__name__).info("Using CPU pre-normalized laplacians for CCCN operators.")
 
         # Features
         lifted_topology["x_0"] = data.x
