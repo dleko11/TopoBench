@@ -13,8 +13,8 @@ num_threads=1
 export OMP_NUM_THREADS=$num_threads
 export MKL_NUM_THREADS=$num_threads
 
-# To push to 8 workers, simply change the '4's below to '8'
-NUM_WORKERS=4
+# Adjust number of workers here!!!
+NUM_WORKERS=8
 
 python -m topobench \
     --multirun \

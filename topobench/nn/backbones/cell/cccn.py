@@ -67,8 +67,8 @@ class CW(nn.Module):
     def __init__(self, F_in, F_out):
         super().__init__()
         self.har = nn.Linear(F_in, F_out)
-        self.sol = GCNConv(F_in, F_out, add_self_loops=False)
-        self.irr = GCNConv(F_in, F_out, add_self_loops=False)
+        self.sol = GCNConv(F_in, F_out, add_self_loops=False, normalize=False)
+        self.irr = GCNConv(F_in, F_out, add_self_loops=False, normalize=False)
 
     def forward(self, xe, Lu, Ld):
         r"""Forward pass.
