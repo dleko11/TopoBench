@@ -1165,6 +1165,44 @@ def build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, num_edges, device=N
     adj = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_edges, num_edges), device=device).coalesce()
     return binarize_sparse(adj)
 
+def build_edge_cycle_laplacian_from_cycle_edges(cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000):
+    """Return sparse COO equivalent to unsigned B2 @ B2.T."""
+    if len(cycle_edges) == 0:
+        return zero_sparse(num_edges, num_edges, device=device, dtype=dtype)
+        
+    all_rows, all_cols = [], []
+    rows, cols = [], []
+    
+    for i, edges in enumerate(cycle_edges):
+        if len(edges) == 0:
+            continue
+            
+        e = torch.tensor(edges, dtype=torch.long, device=device)
+        r = e.repeat_interleave(len(e))
+        c = e.repeat(len(e))
+        
+        rows.append(r)
+        cols.append(c)
+        
+        if chunk_size and (i + 1) % chunk_size == 0 and rows:
+            all_rows.append(torch.cat(rows))
+            all_cols.append(torch.cat(cols))
+            rows, cols = [], []
+            
+    if rows:
+        all_rows.append(torch.cat(rows))
+        all_cols.append(torch.cat(cols))
+
+    if not all_rows:
+        return zero_sparse(num_edges, num_edges, device=device, dtype=dtype)
+
+    row_t = torch.cat(all_rows)
+    col_t = torch.cat(all_cols)
+    val_t = torch.ones(len(row_t), dtype=dtype, device=device)
+    
+    L = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_edges, num_edges), device=device).coalesce()
+    return L
+
 def build_node_cycle_adjacency_from_cycles(cycles, num_nodes, device=None, dtype=torch.float, chunk_size=1000):
     """Return sparse COO equivalent to offdiag((B1 @ B2) @ (B1 @ B2).T)."""
     if len(cycles) == 0:
@@ -1269,9 +1307,20 @@ def get_connectivity_from_incidences_selective(
 
         elif t_normalized == "up-laplacian-1" or t == "up_laplacian_1":
             inc2 = get_inc(2)
-            uplap = safe_sparse_mm(inc2, inc2.T)
-            if not signed:
-                uplap = abs_sparse(uplap)
+            
+            if adjacency_strategy == "pairs" and cycle_edges is not None and not signed:
+                uplap = build_edge_cycle_laplacian_from_cycle_edges(
+                    cycle_edges,
+                    shape[1],
+                    device=inc2.device,
+                    dtype=inc2.dtype,
+                    chunk_size=chunk_size,
+                )
+            else:
+                uplap = safe_sparse_mm(inc2, inc2.T)
+                if not signed:
+                    uplap = abs_sparse(uplap)
+                    
             connectivity[t] = uplap
             if legacy_keys:
                 connectivity["up_laplacian_1"] = uplap
