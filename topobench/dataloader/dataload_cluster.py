@@ -44,7 +44,7 @@ class _CachedBatchDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx: int) -> Data:
-        return torch.load(self.files[idx], map_location="cpu")
+        return torch.load(self.files[idx], map_location="cpu", weights_only=False)
 
 
 def _identity_data_collate(batch_list: list[Data]) -> Data:
@@ -340,6 +340,44 @@ class BlockCSRBatchCollator:
         return data
 
 
+
+def _process_and_save_batch(task):
+    i, parts, final_path, handle, with_edge_attr, split, transform_config = task
+    import os
+    import os.path as osp
+    import time
+    import torch
+    
+    start_time = time.time()
+    
+    # Reconstruct transform from config to avoid pickling issues
+    post_batch_transform = None
+    if transform_config is not None:
+        from topobench.data.utils import build_cluster_transform
+        from omegaconf import OmegaConf
+        cfg = OmegaConf.create(transform_config)
+        post_batch_transform = build_cluster_transform(cfg)
+        
+    ds_adapter = _HandleAdapter(handle)
+    
+    collate = BlockCSRBatchCollator(
+        ds_adapter,
+        device=None,
+        with_edge_attr=with_edge_attr,
+        active_split=split,
+        post_batch_transform=post_batch_transform,
+    )
+    
+    data = collate(parts)
+    data = data.cpu()
+    
+    tmp_path = final_path + f".tmp.{os.getpid()}"
+    torch.save(data, tmp_path)
+    os.replace(tmp_path, final_path)
+    
+    return i, final_path, time.time() - start_time
+
+
 # DataModule-like wrapper
 class ClusterGCNDataModule(LightningDataModule):
     """Streaming DataModule for a single global Cluster-GCN partition.
@@ -399,7 +437,8 @@ class ClusterGCNDataModule(LightningDataModule):
         seed: int = 42,
         device: torch.device | None = None,
         persistent_workers: bool | None = None,
-        post_batch_transform: Callable[..., Any] | None = None,
+        transform_config: dict | None = None,
+        cache_num_workers: int | None = None,
         cache_val: bool = True,
         val_cache_dir: str | None = None,
         val_cache_fingerprint: int | str | None = None,
@@ -444,7 +483,12 @@ class ClusterGCNDataModule(LightningDataModule):
 
         self.ds_adapter = _HandleAdapter(self.handle)
         self._paths = self.handle.get("paths", {})
-        self.post_batch_transform = post_batch_transform
+        self.transform_config = transform_config
+        self.cache_num_workers = int(cache_num_workers) if cache_num_workers is not None else None
+        
+        from topobench.data.utils import build_cluster_transform
+        from omegaconf import OmegaConf
+        self.post_batch_transform = build_cluster_transform(OmegaConf.create(transform_config)) if transform_config is not None else None
 
         # Preload part-lists for splits if available
         self._parts_with = {}
@@ -566,15 +610,10 @@ class ClusterGCNDataModule(LightningDataModule):
             if len(existing) > 0 and osp.exists(complete_marker):
                 self._val_cache_files = existing
                 return
-
-            # Build collator exactly like val_dataloader uses (but keep on CPU)
-            collate = BlockCSRBatchCollator(
-                self.ds_adapter,
-                device=None,  # cache CPU objects
-                with_edge_attr=self.with_edge_attr,
-                active_split="val",
-                post_batch_transform=self.post_batch_transform,
-            )
+                
+            # Clean partial caches if _COMPLETE is missing
+            for f in existing:
+                os.remove(f)
 
             part_ids = np.asarray(
                 list(self._part_ids_for_split("val")), dtype=np.int64
@@ -587,16 +626,48 @@ class ClusterGCNDataModule(LightningDataModule):
             ]
 
             cache_files: list[str] = []
-            for i, parts in enumerate(batches):
-                data = collate(parts)  # already lifted by post_batch_transform
-                data = data.cpu()
-
-                tmp_path = osp.join(cache_dir, f"batch_{i:04d}.pt.tmp")
-                final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
-                torch.save(data, tmp_path)
-                os.replace(tmp_path, final_path)
-
-                cache_files.append(final_path)
+            
+            num_workers = self.cache_num_workers
+            if num_workers is None:
+                num_workers = self.num_workers
+                
+            if num_workers > 1:
+                from concurrent.futures import ProcessPoolExecutor, as_completed
+                import logging
+                logging.info(f"[VAL] Building cache with {num_workers} workers: {len(batches)} batches")
+                
+                tasks = []
+                for i, parts in enumerate(batches):
+                    final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
+                    tasks.append((i, parts, final_path, self.handle, self.with_edge_attr, "val", self.transform_config))
+                
+                cache_files = [None] * len(tasks)
+                with ProcessPoolExecutor(max_workers=num_workers) as executor:
+                    futures = {executor.submit(_process_and_save_batch, task): task[0] for task in tasks}
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        _, final_path, duration = future.result()
+                        cache_files[idx] = final_path
+                        
+            else:
+                # Serial fallback
+                collate = BlockCSRBatchCollator(
+                    self.ds_adapter,
+                    device=None,
+                    with_edge_attr=self.with_edge_attr,
+                    active_split="val",
+                    post_batch_transform=self.post_batch_transform,
+                )
+                import logging
+                logging.info(f"[VAL] Building cache with serial fallback: {len(batches)} batches")
+                for i, parts in enumerate(batches):
+                    data = collate(parts)
+                    data = data.cpu()
+                    tmp_path = osp.join(cache_dir, f"batch_{i:04d}.pt.tmp")
+                    final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
+                    torch.save(data, tmp_path)
+                    os.replace(tmp_path, final_path)
+                    cache_files.append(final_path)
 
             # Mark explicitly that the full epoch of validation has been cached
             with open(complete_marker, "w") as f:
@@ -627,11 +698,10 @@ class ClusterGCNDataModule(LightningDataModule):
                 ds,
                 batch_size=1,
                 shuffle=False,
-                num_workers=self.num_workers,
+                num_workers=0,
                 pin_memory=self.pin_memory,
-                persistent_workers=self.persistent_workers,
                 collate_fn=_cached_collate,
-                drop_last=False,
+                persistent_workers=False,
             )
 
         return self._build_loader(split="val", shuffle=False)

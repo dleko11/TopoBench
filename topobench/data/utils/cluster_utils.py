@@ -404,7 +404,7 @@ class ClusterOnDisk(OnDiskDataset):
             Metadata including partition and configuration.
         """
         if self._meta is None:
-            self._meta = torch.load(self._meta_path, map_location="cpu")
+            self._meta = torch.load(self._meta_path, map_location="cpu", weights_only=False)
         return self._meta
 
     @property

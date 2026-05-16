@@ -56,8 +56,8 @@ class TransductiveOnDiskDataset(OnDiskDataset):
         schema_path = osp.join(self.processed_dir, "schema.pt")
         handle_path = osp.join(self.processed_dir, "handle.pt")
 
-        schema = torch.load(schema_path)
-        handle = torch.load(handle_path)
+        schema = torch.load(schema_path, weights_only=False)
+        handle = torch.load(handle_path, weights_only=False)
 
         self.handle = handle
         self._db = None
@@ -186,7 +186,7 @@ class TransductiveOnDiskDataset(OnDiskDataset):
         # Rewrite handle.pt to be portable to the current environment
         handle_path = osp.join(self.processed_dir, "handle.pt")
         if osp.exists(handle_path):
-            handle = torch.load(handle_path)
+            handle = torch.load(handle_path, weights_only=False)
 
             # Old memmap directory
             old_mm_dir = handle.get("memmap_dir", None)

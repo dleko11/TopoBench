@@ -331,7 +331,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             logging.info(
                 f"[pack_global_partition] Reusing cached partition: {part_dir}"
             )
-            return torch.load(handle_path, map_location="cpu")
+            return torch.load(handle_path, map_location="cpu", weights_only=False)
 
         # Slow path: first runner partitions; others wait on the file-lock indefinitely.
         os.makedirs(processed_base, exist_ok=True)
@@ -342,7 +342,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 logging.info(
                     f"[pack_global_partition] Reusing partition built by peer: {part_dir}"
                 )
-                return torch.load(handle_path, map_location="cpu")
+                return torch.load(handle_path, map_location="cpu", weights_only=False)
 
             os.makedirs(part_dir, exist_ok=True)
             logging.info(
