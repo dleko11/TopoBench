@@ -26,8 +26,9 @@ python -m topobench \
     trainer.max_epochs=1500 \
     trainer.min_epochs=50 \
     trainer.check_val_every_n_epoch=1 \
-    callbacks.early_stopping.patience=130 \
-    logger=csv \
+    callbacks.early_stopping.patience=30 \
+    logger=wandb \
+    logger.wandb.project=tolokers \
     trainer=gpu \
     +trainer.enable_progress_bar=false
 
