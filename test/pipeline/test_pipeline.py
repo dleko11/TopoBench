@@ -6,8 +6,8 @@ import pytest
 from test._utils.simplified_pipeline import run
 
 
-DATASET = "graph/MUTAG"  # ADD YOUR DATASET HERE
-MODELS = ["graph/gcn", "cell/topotune", "simplicial/topotune"]  # ADD ONE OR SEVERAL MODELS
+DATASET = "graph/cocitation_cora_for_partitioning"  # ADD YOUR DATASET HERE
+MODELS = ["graph/gcn", "cell/topotune"]  # ADD ONE OR SEVERAL MODELS
 
 
 class TestPipeline:
@@ -26,7 +26,7 @@ class TestPipeline:
                     overrides=[
                         f"model={MODEL}",
                         f"dataset={DATASET}",
-                        "trainer.max_epochs=2",
+                        "trainer.max_epochs=10",
                         "trainer.min_epochs=1",
                         "trainer.check_val_every_n_epoch=1",
                         "trainer.accelerator=cpu",
