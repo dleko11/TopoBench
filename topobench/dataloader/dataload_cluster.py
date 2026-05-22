@@ -1,4 +1,4 @@
-# topobench/dataloader/dataload_cluster.py
+"""Cluster-GCN dataloading and streaming pipeline for topological deep learning."""
 
 import glob
 import hashlib
@@ -7,8 +7,8 @@ import os
 import os.path as osp
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
-import filelock
 
+import filelock
 import numpy as np
 import torch
 from lightning.pytorch import LightningDataModule
@@ -16,15 +16,15 @@ from torch.utils.data import DataLoader, Dataset
 from torch_geometric.data import Data
 
 
-# Helpers for BlockCSRBatchCollator
 class _HandleAdapter:
+    """Minimal dataset-like adapter for the CSR collator.
+
+    Parameters
+    ----------
+    handle : dict
+        Metadata handle from the global partitioner.
     """
-    Minimal dataset-like object used by the collator.
-    Exposes the few attributes the collator needs:
-      - processed_dir (str)
-      - num_parts (int)
-      - sparse_format (str)
-    """
+
     def __init__(self, handle: dict[str, object]) -> None:
         self.processed_dir = handle["processed_dir"]
         self.num_parts = int(handle["num_parts"])
@@ -32,22 +32,55 @@ class _HandleAdapter:
 
 
 class _PartIdListDataset(Dataset):
-    """Dataset that yields part IDs from a provided list."""
+    """Dataset that yields part IDs from a provided list.
+
+    Parameters
+    ----------
+    part_ids : Sequence of int
+        Cluster part IDs.
+    """
+
     def __init__(self, part_ids: Sequence[int]) -> None:
         self._parts = np.asarray(part_ids, dtype=np.int64)
 
     def __len__(self) -> int:
+        """Return the number of elements in the dataset.
+
+        Returns
+        -------
+        int
+            The number of parts.
+        """
         return self._parts.shape[0]
 
     def __getitem__(self, idx: int) -> int:
+        """Return the part ID at index idx.
+
+        Parameters
+        ----------
+        idx : int
+            The index to access.
+
+        Returns
+        -------
+        int
+            The part ID.
+        """
         return int(self._parts[idx])
 
 
-# Small helper for hashing
 def _make_hash(o: Any) -> int:
-    """Stable-ish hash for cache keys.
+    """Generate a stable hash for cache keys.
 
-    Works best for dict/list/tuple/set containing basic types.
+    Parameters
+    ----------
+    o : Any
+        The object to hash.
+
+    Returns
+    -------
+    int
+        Hash value restricted to uint32 range.
     """
     sha1 = hashlib.sha1()
     sha1.update(str.encode(str(o)))
@@ -55,22 +88,59 @@ def _make_hash(o: Any) -> int:
     return int(sha1.hexdigest(), 16) % 4294967295
 
 
-# Cached-batch dataset
 class _CachedBatchDataset(Dataset):
-    """Dataset that serves precomputed torch_geometric.data.Data objects from disk."""
+    """Dataset serving precomputed Data objects from disk.
+
+    Parameters
+    ----------
+    files : list of str
+        Paths to precomputed PyG Data files.
+    """
 
     def __init__(self, files: list[str]):
         self.files = list(files)
 
     def __len__(self) -> int:
+        """Return the number of files in the dataset.
+
+        Returns
+        -------
+        int
+            The number of files.
+        """
         return len(self.files)
 
     def __getitem__(self, idx: int) -> Data:
-        return torch.load(self.files[idx], map_location="cpu", weights_only=False)
+        """Load and return the Data object at index idx.
+
+        Parameters
+        ----------
+        idx : int
+            The index to access.
+
+        Returns
+        -------
+        Data
+            The loaded PyG Data object.
+        """
+        return torch.load(
+            self.files[idx], map_location="cpu", weights_only=False
+        )
 
 
 def _identity_data_collate(batch_list: list[Data]) -> Data:
-    """Collate for cached validation where batch_size=1 returns [Data]."""
+    """Collate a single-batch list by returning the first element.
+
+    Parameters
+    ----------
+    batch_list : list of Data
+        List containing a single Data object.
+
+    Returns
+    -------
+    Data
+        The first Data object in the list.
+    """
     return batch_list[0]
 
 
@@ -152,8 +222,14 @@ class BlockCSRBatchCollator:
 
         self._transform_calls = 0
 
-    # small helper to choose active split mask array
     def _active_mask_array(self) -> np.ndarray:
+        """Choose and return the active split mask array.
+
+        Returns
+        -------
+        np.ndarray
+            The permuted split mask array corresponding to active_split.
+        """
         if self.active_split == "train":
             return self.train_mask_perm
         if self.active_split == "val":
@@ -323,11 +399,15 @@ class BlockCSRBatchCollator:
                         cell_dim = int(key.split("_")[1])
                     except Exception:
                         continue
-                
+
                 batch_key = f"batch_{cell_dim}"
                 if not hasattr(data, batch_key):
                     num_cells = getattr(data, key).shape[0]
-                    setattr(data, batch_key, torch.zeros(num_cells, dtype=torch.long))
+                    setattr(
+                        data,
+                        batch_key,
+                        torch.zeros(num_cells, dtype=torch.long),
+                    )
 
         if self.device is not None:
             data = data.to(self.device)
@@ -336,24 +416,40 @@ class BlockCSRBatchCollator:
 
 
 def _process_and_save_batch(task):
-    i, parts, final_path, handle, with_edge_attr, split, transform_config = task
+    """Execute a single batch task and save it to disk.
+
+    Parameters
+    ----------
+    task : tuple
+        Tuple containing (index, parts, final_path, handle, with_edge_attr, split, transform_config).
+
+    Returns
+    -------
+    tuple
+        Tuple of (index, final_path, duration).
+    """
+    i, parts, final_path, handle, with_edge_attr, split, transform_config = (
+        task
+    )
     import os
-    import os.path as osp
     import time
+
     import torch
-    
+
     start_time = time.time()
-    
+
     # Reconstruct transform from config to avoid pickling issues
     post_batch_transform = None
     if transform_config is not None:
-        from topobench.data.utils import build_cluster_transform
         from omegaconf import OmegaConf
+
+        from topobench.data.utils import build_cluster_transform
+
         cfg = OmegaConf.create(transform_config)
         post_batch_transform = build_cluster_transform(cfg)
-        
+
     ds_adapter = _HandleAdapter(handle)
-    
+
     collate = BlockCSRBatchCollator(
         ds_adapter,
         device=None,
@@ -361,14 +457,14 @@ def _process_and_save_batch(task):
         active_split=split,
         post_batch_transform=post_batch_transform,
     )
-    
+
     data = collate(parts)
     data = data.cpu()
-    
+
     tmp_path = final_path + f".tmp.{os.getpid()}"
     torch.save(data, tmp_path)
     os.replace(tmp_path, final_path)
-    
+
     return i, final_path, time.time() - start_time
 
 
@@ -386,6 +482,14 @@ class ClusterGCNDataModule(LightningDataModule):
         Handle dictionary describing dataset paths and metadata.
     q : int, optional
         Number of clusters per mini-batch. Default is 10.
+    q_val : int, optional
+        Number of clusters per mini-batch for validation. Default is None.
+    q_test : int, optional
+        Number of clusters per mini-batch for testing. Default is None.
+    val_batches : int, optional
+        Target number of validation batches. Default is 5.
+    test_batches : int, optional
+        Target number of test batches. Default is None.
     num_workers : int, optional
         Number of worker processes for the dataloaders. Default is 0.
     pin_memory : bool, optional
@@ -393,26 +497,25 @@ class ClusterGCNDataModule(LightningDataModule):
     with_edge_attr : bool, optional
         If True, batches include edge attributes. Default is False.
     eval_cover_strategy : str, optional
-        Strategy for evaluation coverage (e.g. ``"all_parts"``). Default is "all_parts".
+        Strategy for evaluation coverage. Default is "all_parts".
     seed : int, optional
         Random seed for part shuffling. Default is 42.
     device : torch.device or None, optional
-        Device to move batches to. If ``None``, stays on CPU.
+        Device to move batches to. Default is None.
     persistent_workers : bool or None, optional
-        If True, use persistent workers in dataloaders. If ``None``,
-        inferred from ``num_workers``.
+        If True, use persistent workers in dataloaders. Default is None.
+    transform_config : dict, optional
+        Optional transform configuration dictionary. Default is None.
     post_batch_transform : callable or None, optional
-        Optional transform applied to each batch after collation.
-
-    Validation caching
-    ------------------
-    cache_val : bool
-        If True, precompute lifted val batches once and reuse.
-    val_cache_dir : str or None
-        Base directory for caching. Defaults to <processed_dir>/val_cache.
-    val_cache_fingerprint : int/str/None
-        If provided, forms cache directory name. Use this to invalidate cache
-        when transform config changes.
+        Optional transform applied to each batch after collation. Default is None.
+    cache_num_workers : int, optional
+        Number of worker processes for cache generation. Default is None.
+    cache_val : bool, optional
+        If True, validation batches are precomputed and cached. Default is True.
+    val_cache_dir : str, optional
+        Custom validation cache directory path. Default is None.
+    val_cache_fingerprint : str or int, optional
+        Fingerprint to differentiate cache runs. Default is None.
     """
 
     def __init__(
@@ -478,14 +581,20 @@ class ClusterGCNDataModule(LightningDataModule):
         self.ds_adapter = _HandleAdapter(self.handle)
         self._paths = self.handle.get("paths", {})
         self.transform_config = transform_config
-        self.cache_num_workers = int(cache_num_workers) if cache_num_workers is not None else None
-        
+        self.cache_num_workers = (
+            int(cache_num_workers) if cache_num_workers is not None else None
+        )
+
         if post_batch_transform is not None:
             self.post_batch_transform = post_batch_transform
         elif transform_config is not None:
-            from topobench.data.utils import build_cluster_transform
             from omegaconf import OmegaConf
-            self.post_batch_transform = build_cluster_transform(OmegaConf.create(transform_config))
+
+            from topobench.data.utils import build_cluster_transform
+
+            self.post_batch_transform = build_cluster_transform(
+                OmegaConf.create(transform_config)
+            )
         else:
             self.post_batch_transform = None
 
@@ -505,7 +614,18 @@ class ClusterGCNDataModule(LightningDataModule):
         self._val_cache_files: list[str] | None = None
 
     def _part_ids_for_split(self, split: str) -> Iterable[int]:
-        """Return cluster IDs to iterate for a given split."""
+        """Return cluster IDs to iterate for a given split.
+
+        Parameters
+        ----------
+        split : str
+            The dataset split ("train", "val", "test").
+
+        Returns
+        -------
+        Iterable of int
+            Cluster part IDs for the split.
+        """
         split = split.lower()
 
         key = None
@@ -525,6 +645,18 @@ class ClusterGCNDataModule(LightningDataModule):
         return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
 
     def _q_for_split(self, split: str) -> int:
+        """Return the batch size (number of clusters) for a given split.
+
+        Parameters
+        ----------
+        split : str
+            The dataset split ("train", "val", "test").
+
+        Returns
+        -------
+        int
+            Batch size for the given split.
+        """
         split = split.lower()
         if split == "val":
             return self.q_val
@@ -533,6 +665,20 @@ class ClusterGCNDataModule(LightningDataModule):
         return self.q
 
     def _build_loader(self, *, split: str, shuffle: bool) -> DataLoader:
+        """Build and return a DataLoader for a given split.
+
+        Parameters
+        ----------
+        split : str
+            The dataset split ("train", "val", "test").
+        shuffle : bool
+            Whether to shuffle the dataset parts.
+
+        Returns
+        -------
+        DataLoader
+            DataLoader for the split.
+        """
         part_ids = self._part_ids_for_split(split)
         part_ds = _PartIdListDataset(part_ids)
 
@@ -560,7 +706,13 @@ class ClusterGCNDataModule(LightningDataModule):
         )
 
     def setup(self, stage: str | None = None) -> None:
-        """Precompute and cache validation batches (after lifting) once."""
+        """Precompute and cache validation batches (after lifting) once.
+
+        Parameters
+        ----------
+        stage : str or None, optional
+            The stage parameter ("fit", "validate", "test"). Default is None.
+        """
         if stage not in (None, "fit", "validate"):
             return
         if not self.cache_val:
@@ -597,13 +749,13 @@ class ClusterGCNDataModule(LightningDataModule):
             return
 
         lock_path = osp.join(base_dir, f"val_{cache_id}.lock")
-        
+
         with filelock.FileLock(lock_path, timeout=-1):
             existing = sorted(glob.glob(osp.join(cache_dir, "batch_*.pt")))
             if len(existing) > 0 and osp.exists(complete_marker):
                 self._val_cache_files = existing
                 return
-                
+
             for f in existing:
                 os.remove(f)
 
@@ -617,29 +769,48 @@ class ClusterGCNDataModule(LightningDataModule):
             ]
 
             cache_files: list[str] = []
-            
+
             num_workers = self.cache_num_workers
             if num_workers is None:
                 num_workers = self.num_workers
-                
+
             if num_workers > 1:
-                from concurrent.futures import ProcessPoolExecutor, as_completed
                 import logging
-                logging.info(f"[VAL] Building cache with {num_workers} workers: {len(batches)} batches")
-                
+                from concurrent.futures import (
+                    ProcessPoolExecutor,
+                    as_completed,
+                )
+
+                logging.info(
+                    f"[VAL] Building cache with {num_workers} workers: {len(batches)} batches"
+                )
+
                 tasks = []
                 for i, parts in enumerate(batches):
                     final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
-                    tasks.append((i, parts, final_path, self.handle, self.with_edge_attr, "val", self.transform_config))
-                
+                    tasks.append(
+                        (
+                            i,
+                            parts,
+                            final_path,
+                            self.handle,
+                            self.with_edge_attr,
+                            "val",
+                            self.transform_config,
+                        )
+                    )
+
                 cache_files = [None] * len(tasks)
                 with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                    futures = {executor.submit(_process_and_save_batch, task): task[0] for task in tasks}
+                    futures = {
+                        executor.submit(_process_and_save_batch, task): task[0]
+                        for task in tasks
+                    }
                     for future in as_completed(futures):
                         idx = futures[future]
                         _, final_path, duration = future.result()
                         cache_files[idx] = final_path
-                        
+
             else:
                 collate = BlockCSRBatchCollator(
                     self.ds_adapter,
@@ -649,7 +820,10 @@ class ClusterGCNDataModule(LightningDataModule):
                     post_batch_transform=self.post_batch_transform,
                 )
                 import logging
-                logging.info(f"[VAL] Building cache with serial fallback: {len(batches)} batches")
+
+                logging.info(
+                    f"[VAL] Building cache with serial fallback: {len(batches)} batches"
+                )
                 for i, parts in enumerate(batches):
                     data = collate(parts)
                     data = data.cpu()
@@ -665,13 +839,24 @@ class ClusterGCNDataModule(LightningDataModule):
         self._val_cache_files = cache_files
 
     def train_dataloader(self) -> DataLoader:
-        """Return dataloader for the training split."""
+        """Return dataloader for the training split.
+
+        Returns
+        -------
+        DataLoader
+            Training dataloader.
+        """
         return self._build_loader(split="train", shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
         """Return dataloader for the validation split.
 
         If caching is enabled and present, returns cached lifted batches.
+
+        Returns
+        -------
+        DataLoader
+            Validation dataloader.
         """
         if self.cache_val and self._val_cache_files is not None:
             ds = _CachedBatchDataset(self._val_cache_files)
@@ -695,5 +880,11 @@ class ClusterGCNDataModule(LightningDataModule):
         return self._build_loader(split="val", shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        """Return dataloader for the test split."""
+        """Return dataloader for the test split.
+
+        Returns
+        -------
+        DataLoader
+            Test dataloader.
+        """
         return self._build_loader(split="test", shuffle=False)

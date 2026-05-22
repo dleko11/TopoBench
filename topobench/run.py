@@ -267,9 +267,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         )
         # Log the best model checkpoint path into wandb
         for logger_elem in logger:
-            if isinstance(
-                logger_elem, WandbLogger
-            ) and hasattr(logger_elem, "experiment"):
+            if isinstance(logger_elem, WandbLogger) and hasattr(
+                logger_elem, "experiment"
+            ):
                 logger_elem.experiment.log(
                     {"checkpoint": trainer.checkpoint_callback.best_model_path}
                 )

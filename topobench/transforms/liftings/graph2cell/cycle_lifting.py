@@ -1,13 +1,13 @@
 """This module implements the cycle lifting for graphs to cell complexes."""
 
 import networkx as nx
-import numpy as np
 import torch
 import torch_geometric
 from toponetx.classes import CellComplex
 
-from topobench.data.utils.utils import get_connectivity_from_incidences_selective
-
+from topobench.data.utils.utils import (
+    get_connectivity_from_incidences_selective,
+)
 from topobench.transforms.liftings.graph2cell.base import (
     Graph2CellLifting,
 )
@@ -76,11 +76,20 @@ class CellCycleLiftingSelective(Graph2CellLifting):
         Strategy to build adjacency matrices ('sparse_mm' or 'pairs'). Default is 'pairs'.
     chunk_size : int, optional
         Chunk size for pair-based adjacency generation. Default is 1000.
+    normalize_laplacians : bool, optional
+        Whether to normalize Laplacian tensors. Default is False.
     **kwargs : optional
         Additional arguments for the class.
     """
 
-    def __init__(self, max_cell_length=None, adjacency_strategy="pairs", chunk_size=1000, normalize_laplacians=False, **kwargs):
+    def __init__(
+        self,
+        max_cell_length=None,
+        adjacency_strategy="pairs",
+        chunk_size=1000,
+        normalize_laplacians=False,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.complex_dim = 2
         self.max_cell_length = max_cell_length
@@ -120,7 +129,7 @@ class CellCycleLiftingSelective(Graph2CellLifting):
         num_cells = len(cycles)
 
         incidences = {}
-        
+
         # incidence_0
         incidences[0] = torch.sparse_coo_tensor(size=(0, num_nodes)).coalesce()
 
@@ -137,7 +146,9 @@ class CellCycleLiftingSelective(Graph2CellLifting):
                 size=(num_nodes, num_edges),
             ).coalesce()
         else:
-            incidences[1] = torch.sparse_coo_tensor(size=(num_nodes, num_edges)).coalesce()
+            incidences[1] = torch.sparse_coo_tensor(
+                size=(num_nodes, num_edges)
+            ).coalesce()
 
         # incidence_2 and cycle_edges
         cycle_edges = []
@@ -145,33 +156,40 @@ class CellCycleLiftingSelective(Graph2CellLifting):
             rows_2 = []
             cols_2 = []
             vals_2 = []
-            
+
             for cell_id, cycle in enumerate(cycles):
                 c_edges = []
-            
+
                 for j in range(len(cycle)):
                     u = cycle[j]
                     v = cycle[(j + 1) % len(cycle)]
-            
+
                     key = (min(u, v), max(u, v))
                     edge_id = edge_map[key]
-            
+
                     c_edges.append(edge_id)
                     rows_2.append(edge_id)
                     cols_2.append(cell_id)
-            
+
                     sign = 1.0 if (u, v) == key else -1.0
                     vals_2.append(sign)
-            
+
                 cycle_edges.append(c_edges)
-            
+
             incidences[2] = torch.sparse_coo_tensor(
-                torch.stack([torch.tensor(rows_2, dtype=torch.long), torch.tensor(cols_2, dtype=torch.long)]),
+                torch.stack(
+                    [
+                        torch.tensor(rows_2, dtype=torch.long),
+                        torch.tensor(cols_2, dtype=torch.long),
+                    ]
+                ),
                 torch.tensor(vals_2, dtype=torch.float),
                 size=(num_edges, num_cells),
             ).coalesce()
         else:
-            incidences[2] = torch.sparse_coo_tensor(size=(num_edges, 0)).coalesce()
+            incidences[2] = torch.sparse_coo_tensor(
+                size=(num_edges, 0)
+            ).coalesce()
 
         # Connectivities
         shape = [num_nodes, num_edges, num_cells]
@@ -193,7 +211,11 @@ class CellCycleLiftingSelective(Graph2CellLifting):
         # Features
         lifted_topology["x_0"] = data.x
 
-        if self.contains_edge_attr and num_edges == graph.number_of_edges() and hasattr(data, "edge_index"):
+        if (
+            self.contains_edge_attr
+            and num_edges == graph.number_of_edges()
+            and hasattr(data, "edge_index")
+        ):
             ei = data.edge_index
             data_edge_map = {}
             for idx in range(ei.size(1)):
@@ -205,9 +227,10 @@ class CellCycleLiftingSelective(Graph2CellLifting):
             reorder_indices = []
             for e in sorted_edges:
                 if e not in data_edge_map:
-                    raise ValueError(f"Edge {e} from NetworkX graph not found in edge_index.")
+                    raise ValueError(
+                        f"Edge {e} from NetworkX graph not found in edge_index."
+                    )
                 reorder_indices.append(data_edge_map[e])
             if hasattr(data, "edge_attr") and data.edge_attr is not None:
                 lifted_topology["x_1"] = data.edge_attr[reorder_indices]
         return lifted_topology
-
