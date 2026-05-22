@@ -4,8 +4,8 @@ import hydra
 from test._utils.simplified_pipeline import run
 
 
-DATASET = "graph/MUTAG"                                                 # ADD YOUR DATASET HERE
-MODELS   = ["graph/gcn", "cell/topotune", "simplicial/topotune"]        # ADD ONE OR SEVERAL MODELS OF YOUR CHOICE HERE
+DATASET = "graph/cocitation_cora_for_partitioning"                                                 # ADD YOUR DATASET HERE
+MODELS   = ["graph/gcn", "cell/topotune"]        # ADD ONE OR SEVERAL MODELS OF YOUR CHOICE HERE
 
 
 class TestPipeline:
@@ -24,7 +24,7 @@ class TestPipeline:
                     overrides=[
                         f"model={MODEL}",
                         f"dataset={DATASET}", # IF YOU IMPLEMENT A LARGE DATASET WITH AN OPTION TO USE A SLICE OF IT, ADD BELOW THE CORRESPONDING OPTION
-                        "trainer.max_epochs=2",
+                        "trainer.max_epochs=10",
                         "trainer.min_epochs=1",
                         "trainer.check_val_every_n_epoch=1",
                         "paths=test",
