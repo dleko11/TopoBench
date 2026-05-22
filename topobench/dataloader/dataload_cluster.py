@@ -432,6 +432,7 @@ class ClusterGCNDataModule(LightningDataModule):
         device: torch.device | None = None,
         persistent_workers: bool | None = None,
         transform_config: dict | None = None,
+        post_batch_transform: Callable[..., Any] | None = None,
         cache_num_workers: int | None = None,
         cache_val: bool = True,
         val_cache_dir: str | None = None,
@@ -479,9 +480,14 @@ class ClusterGCNDataModule(LightningDataModule):
         self.transform_config = transform_config
         self.cache_num_workers = int(cache_num_workers) if cache_num_workers is not None else None
         
-        from topobench.data.utils import build_cluster_transform
-        from omegaconf import OmegaConf
-        self.post_batch_transform = build_cluster_transform(OmegaConf.create(transform_config)) if transform_config is not None else None
+        if post_batch_transform is not None:
+            self.post_batch_transform = post_batch_transform
+        elif transform_config is not None:
+            from topobench.data.utils import build_cluster_transform
+            from omegaconf import OmegaConf
+            self.post_batch_transform = build_cluster_transform(OmegaConf.create(transform_config))
+        else:
+            self.post_batch_transform = None
 
         # Preload part-lists for splits if available
         self._parts_with = {}
