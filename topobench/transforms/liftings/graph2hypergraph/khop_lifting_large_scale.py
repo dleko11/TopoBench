@@ -107,6 +107,13 @@ class HypergraphKHopLiftingLargeScale(Graph2HypergraphLifting):
         # Transpose: incidence_hyperedges[j, i] = 1 means node j is in hyperedge i
         incidence = khop_adj.t().coalesce()
 
+        # Binarize to ensure matching standard binary representation
+        indices = incidence.indices()
+        values = torch.ones(indices.size(1), device=device)
+        incidence = torch.sparse_coo_tensor(
+            indices, values, size=(num_nodes, num_nodes)
+        ).coalesce()
+
         return {
             "incidence_hyperedges": incidence,
             "num_hyperedges": num_nodes,

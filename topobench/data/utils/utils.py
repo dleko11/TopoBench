@@ -143,9 +143,11 @@ def get_complex_connectivity_from_incidences(
         B_r = incidences.get(rank_idx)
         if B_r is not None:
             if not signed:
-                connectivity[f"incidence_{rank_idx}"] = torch.sparse_coo_tensor(
-                    B_r.indices(), B_r.values().abs(), B_r.size()
-                ).coalesce()
+                connectivity[f"incidence_{rank_idx}"] = (
+                    torch.sparse_coo_tensor(
+                        B_r.indices(), B_r.values().abs(), B_r.size()
+                    ).coalesce()
+                )
             else:
                 connectivity[f"incidence_{rank_idx}"] = B_r
         else:
@@ -158,19 +160,21 @@ def get_complex_connectivity_from_incidences(
         # Both derive from product B_{r+1} @ B_{r+1}.T
         B_rp1 = incidences.get(rank_idx + 1)
         if B_rp1 is not None:
-            # For adjacency, TopoNetX uses |B| @ |B|.T when unsigned. 
+            # For adjacency, TopoNetX uses |B| @ |B|.T when unsigned.
             # If signed=False, B_rp1 is already absolute (handled in incidence_r+1 or manually here).
             if not signed:
-                B_rp1_proc = torch.sparse_coo_tensor(B_rp1.indices(), B_rp1.values().abs(), B_rp1.size())
+                B_rp1_proc = torch.sparse_coo_tensor(
+                    B_rp1.indices(), B_rp1.values().abs(), B_rp1.size()
+                )
             else:
                 B_rp1_proc = B_rp1
 
             # Core product for rank r "up" connectivity
             up_prod = assemble_connectivity(B_rp1_proc, layout="up")
-            
+
             # Up Laplacian
             connectivity[f"up_laplacian_{rank_idx}"] = up_prod
-            
+
             # Adjacency (off-diagonal entries of the product)
             idx = up_prod.indices()
             vals = up_prod.values()
@@ -190,16 +194,18 @@ def get_complex_connectivity_from_incidences(
         # Both derive from product B_r.T @ B_r
         if B_r is not None and rank_idx >= 1:
             if not signed:
-                B_r_proc = torch.sparse_coo_tensor(B_r.indices(), B_r.values().abs(), B_r.size())
+                B_r_proc = torch.sparse_coo_tensor(
+                    B_r.indices(), B_r.values().abs(), B_r.size()
+                )
             else:
                 B_r_proc = B_r
 
             # Core product for rank r "down" connectivity
             down_prod = assemble_connectivity(B_r_proc, layout="down")
-            
+
             # Down Laplacian
             connectivity[f"down_laplacian_{rank_idx}"] = down_prod
-            
+
             # Coadjacency (off-diagonal entries of the product)
             idx = down_prod.indices()
             vals = down_prod.values()
@@ -1037,45 +1043,42 @@ def assemble_connectivity(B, layout="up"):
         # B @ B.T = sum over chunks of (B_chunk @ B_chunk.T)
         chunk_size = 50000  # Adjust based on available RAM, 50k is very safe
         res = None
-        
+
         # If the matrix is small, just do it in one go
         if ns <= chunk_size:
             return torch.sparse.mm(B, B.t()).coalesce()
 
         indices = B.indices()
         values = B.values()
-        
+
         for i in range(0, ns, chunk_size):
             start = i
             length = min(chunk_size, ns - start)
-            
+
             # Manual slicing of coalesced matrix for speed and memory efficiency
             mask = (indices[1] >= start) & (indices[1] < start + length)
-            
+
             if not mask.any():
                 continue
-                
+
             chunk_indices = indices[:, mask].clone()
-            chunk_indices[1] -= start # Re-index to local chunk columns
+            chunk_indices[1] -= start  # Re-index to local chunk columns
             chunk_values = values[mask].clone()
-            
+
             B_chunk = torch.sparse_coo_tensor(
-                chunk_indices, 
-                chunk_values,
-                size=(nf, length),
-                device=B.device
+                chunk_indices, chunk_values, size=(nf, length), device=B.device
             ).coalesce()
-            
+
             # Compute partial product
             prod = torch.sparse.mm(B_chunk, B_chunk.t()).coalesce()
-            
-            if res is None:
-                res = prod
-            else:
-                # Accumulate sparse matrices
-                res = (res + prod).coalesce()
-        
-        return res if res is not None else torch.sparse_coo_tensor(size=(nf, nf), device=B.device)
+
+            res = prod if res is None else (res + prod).coalesce()
+
+        return (
+            res
+            if res is not None
+            else torch.sparse_coo_tensor(size=(nf, nf), device=B.device)
+        )
 
     elif layout == "down":
         # Compute L = B.T @ B (Simplices x Simplices)
@@ -1087,30 +1090,88 @@ def assemble_connectivity(B, layout="up"):
 
 
 def zero_sparse(m, n, device=None, dtype=torch.float):
-    """Generate a zero sparse tensor of given dimensions."""
-    return torch.sparse_coo_tensor(size=(m, n), device=device, dtype=dtype).coalesce()
+    """Generate a zero sparse tensor of given dimensions.
+
+    Parameters
+    ----------
+    m : int
+        Number of rows.
+    n : int
+        Number of columns.
+    device : torch.device, optional
+        Device to store the tensor. Default is None.
+    dtype : torch.dtype, optional
+        Data type of the tensor. Default is torch.float.
+
+    Returns
+    -------
+    torch.Tensor
+        Zero sparse tensor.
+    """
+    return torch.sparse_coo_tensor(
+        size=(m, n), device=device, dtype=dtype
+    ).coalesce()
 
 
 def binarize_sparse(A):
-    """Binarize a sparse tensor by turning all non-zero values into 1.0."""
+    """Binarize a sparse tensor by turning all non-zero values into 1.0.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        Sparse tensor to binarize.
+
+    Returns
+    -------
+    torch.Tensor
+        Binarized sparse tensor.
+    """
     if not A.is_sparse:
         return A
     A = A.coalesce()
     vals = torch.ones_like(A.values())
-    return torch.sparse_coo_tensor(A.indices(), vals, A.size(), device=A.device).coalesce()
+    return torch.sparse_coo_tensor(
+        A.indices(), vals, A.size(), device=A.device
+    ).coalesce()
 
 
 def abs_sparse(A):
-    """Take the absolute value of all entries in a sparse tensor."""
+    """Take the absolute value of all entries in a sparse tensor.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        Sparse tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Absolute sparse tensor.
+    """
     if not A.is_sparse:
         return A
     A = A.coalesce()
     vals = torch.abs(A.values())
-    return torch.sparse_coo_tensor(A.indices(), vals, A.size(), device=A.device).coalesce()
+    return torch.sparse_coo_tensor(
+        A.indices(), vals, A.size(), device=A.device
+    ).coalesce()
 
 
 def remove_diag_sparse(A, binarize=True):
-    """Remove diagonal elements from a sparse tensor and optionally binarize."""
+    """Remove diagonal elements from a sparse tensor and optionally binarize.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        Sparse tensor.
+    binarize : bool, optional
+        Whether to binarize non-zero entries. Default is True.
+
+    Returns
+    -------
+    torch.Tensor
+        Sparse tensor with diagonal removed.
+    """
     if not A.is_sparse:
         return A
     A = A.coalesce()
@@ -1121,26 +1182,64 @@ def remove_diag_sparse(A, binarize=True):
     new_values = values[mask]
     if binarize:
         new_values = torch.ones_like(new_values)
-    return torch.sparse_coo_tensor(new_indices, new_values, A.size(), device=A.device).coalesce()
+    return torch.sparse_coo_tensor(
+        new_indices, new_values, A.size(), device=A.device
+    ).coalesce()
 
 
 def safe_sparse_mm(A, B):
-    """Safe sparse matrix multiplication."""
+    """Safe sparse matrix multiplication.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        First sparse tensor.
+    B : torch.Tensor
+        Second sparse tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Product of A and B.
+    """
     A = A.coalesce()
     B = B.coalesce()
     if A._nnz() == 0 or B._nnz() == 0:
-        return zero_sparse(A.size(0), B.size(1), device=A.device, dtype=A.dtype)
+        return zero_sparse(
+            A.size(0), B.size(1), device=A.device, dtype=A.dtype
+        )
     return torch.sparse.mm(A, B)
 
 
-def build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000):
-    """Return sparse COO equivalent to offdiag(B2 @ B2.T)."""
+def build_edge_cycle_adjacency_from_cycle_edges(
+    cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000
+):
+    """Return sparse COO equivalent to offdiag(B2 @ B2.T).
+
+    Parameters
+    ----------
+    cycle_edges : list of lists
+        List of edges in each cycle.
+    num_edges : int
+        Number of edges in the graph.
+    device : torch.device, optional
+        Device to store the tensor. Default is None.
+    dtype : torch.dtype, optional
+        Data type of the tensor. Default is torch.float.
+    chunk_size : int, optional
+        Chunk size for sparse tensor construction. Default is 1000.
+
+    Returns
+    -------
+    torch.Tensor
+        Sparse COO adjacency tensor.
+    """
     if len(cycle_edges) == 0:
         return zero_sparse(num_edges, num_edges, device=device, dtype=dtype)
-        
+
     all_rows, all_cols = [], []
     rows, cols = [], []
-    
+
     for i, edges in enumerate(cycle_edges):
         if len(edges) < 2:
             continue
@@ -1150,12 +1249,12 @@ def build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, num_edges, device=N
         mask = r != c
         rows.append(r[mask])
         cols.append(c[mask])
-        
+
         if chunk_size and (i + 1) % chunk_size == 0 and rows:
             all_rows.append(torch.cat(rows))
             all_cols.append(torch.cat(cols))
             rows, cols = [], []
-            
+
     if rows:
         all_rows.append(torch.cat(rows))
         all_cols.append(torch.cat(cols))
@@ -1166,8 +1265,13 @@ def build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, num_edges, device=N
     row_t = torch.cat(all_rows)
     col_t = torch.cat(all_cols)
     val_t = torch.ones(len(row_t), dtype=dtype, device=device)
-    
-    adj = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_edges, num_edges), device=device).coalesce()
+
+    adj = torch.sparse_coo_tensor(
+        torch.stack([row_t, col_t]),
+        val_t,
+        size=(num_edges, num_edges),
+        device=device,
+    ).coalesce()
     return binarize_sparse(adj)
 
 
@@ -1176,61 +1280,95 @@ def gcn_normalize_sparse_tensor(
     add_self_loops: bool = False,
     eps: float = 1e-12,
 ) -> torch.Tensor:
-    """
-    CPU-side equivalent of PyG GCNConv normalization for a sparse COO tensor.
-    Intended to reproduce gcn_norm(..., add_self_loops=False) for weighted
-    sparse operators, so CCCN can use GCNConv(normalize=False) without changing
-    the old normalized behavior.
+    """Normalize a sparse COO tensor equivalent to PyG GCNConv normalization.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        Sparse COO tensor to normalize.
+    add_self_loops : bool, optional
+        Whether to add self-loops before normalization. Default is False.
+    eps : float, optional
+        Epsilon for numerical stability. Default is 1e-12.
+
+    Returns
+    -------
+    torch.Tensor
+        Normalized sparse COO tensor.
     """
     if A.layout != torch.sparse_coo:
         raise ValueError(f"Expected torch.sparse_coo, got {A.layout}")
-        
+
     A = A.coalesce()
     if A._nnz() == 0:
         return A
-        
+
     idx = A.indices()
     vals = A.values()
-    
+
     row, col = idx[0], idx[1]
-    
+
     # Compute degree
     deg = torch.zeros(A.size(0), dtype=vals.dtype, device=A.device)
     deg.scatter_add_(0, row, vals)
-    
+
     # PyG degree formula: deg_inv_sqrt = deg.pow(-0.5)
     deg_inv_sqrt = deg.pow(-0.5)
-    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float('inf'), 0.0)
-    
+    deg_inv_sqrt.masked_fill_(deg_inv_sqrt == float("inf"), 0.0)
+
+    # Normalize values
     norm_vals = deg_inv_sqrt[row] * vals * deg_inv_sqrt[col]
-    
-    return torch.sparse_coo_tensor(idx, norm_vals, A.size(), device=A.device).coalesce()
+
+    return torch.sparse_coo_tensor(
+        idx, norm_vals, A.size(), device=A.device
+    ).coalesce()
 
 
-def build_edge_cycle_laplacian_from_cycle_edges(cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000):
-    """Return sparse COO equivalent to unsigned B2 @ B2.T."""
+def build_edge_cycle_laplacian_from_cycle_edges(
+    cycle_edges, num_edges, device=None, dtype=torch.float, chunk_size=1000
+):
+    """Return sparse COO equivalent to unsigned B2 @ B2.T.
+
+    Parameters
+    ----------
+    cycle_edges : list of lists
+        List of edges in each cycle.
+    num_edges : int
+        Number of edges in the graph.
+    device : torch.device, optional
+        Device to store the tensor. Default is None.
+    dtype : torch.dtype, optional
+        Data type of the tensor. Default is torch.float.
+    chunk_size : int, optional
+        Chunk size for sparse tensor construction. Default is 1000.
+
+    Returns
+    -------
+    torch.Tensor
+        Sparse COO Laplacian tensor.
+    """
     if len(cycle_edges) == 0:
         return zero_sparse(num_edges, num_edges, device=device, dtype=dtype)
-        
+
     all_rows, all_cols = [], []
     rows, cols = [], []
-    
+
     for i, edges in enumerate(cycle_edges):
         if len(edges) == 0:
             continue
-            
+
         e = torch.tensor(edges, dtype=torch.long, device=device)
         r = e.repeat_interleave(len(e))
         c = e.repeat(len(e))
-        
+
         rows.append(r)
         cols.append(c)
-        
+
         if chunk_size and (i + 1) % chunk_size == 0 and rows:
             all_rows.append(torch.cat(rows))
             all_cols.append(torch.cat(cols))
             rows, cols = [], []
-            
+
     if rows:
         all_rows.append(torch.cat(rows))
         all_cols.append(torch.cat(cols))
@@ -1241,19 +1379,45 @@ def build_edge_cycle_laplacian_from_cycle_edges(cycle_edges, num_edges, device=N
     row_t = torch.cat(all_rows)
     col_t = torch.cat(all_cols)
     val_t = torch.ones(len(row_t), dtype=dtype, device=device)
-    
-    L = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_edges, num_edges), device=device).coalesce()
+
+    L = torch.sparse_coo_tensor(
+        torch.stack([row_t, col_t]),
+        val_t,
+        size=(num_edges, num_edges),
+        device=device,
+    ).coalesce()
     return L
 
 
-def build_node_cycle_adjacency_from_cycles(cycles, num_nodes, device=None, dtype=torch.float, chunk_size=1000):
-    """Return sparse COO equivalent to offdiag((B1 @ B2) @ (B1 @ B2).T)."""
+def build_node_cycle_adjacency_from_cycles(
+    cycles, num_nodes, device=None, dtype=torch.float, chunk_size=1000
+):
+    """Return sparse COO equivalent to offdiag((B1 @ B2) @ (B1 @ B2).T).
+
+    Parameters
+    ----------
+    cycles : list of lists
+        List of nodes in each cycle.
+    num_nodes : int
+        Number of nodes in the graph.
+    device : torch.device, optional
+        Device to store the tensor. Default is None.
+    dtype : torch.dtype, optional
+        Data type of the tensor. Default is torch.float.
+    chunk_size : int, optional
+        Chunk size for sparse tensor construction. Default is 1000.
+
+    Returns
+    -------
+    torch.Tensor
+        Sparse COO adjacency tensor.
+    """
     if len(cycles) == 0:
         return zero_sparse(num_nodes, num_nodes, device=device, dtype=dtype)
-        
+
     all_rows, all_cols = [], []
     rows, cols = [], []
-    
+
     for i, nodes in enumerate(cycles):
         if len(nodes) < 2:
             continue
@@ -1263,12 +1427,12 @@ def build_node_cycle_adjacency_from_cycles(cycles, num_nodes, device=None, dtype
         mask = r != c
         rows.append(r[mask])
         cols.append(c[mask])
-        
+
         if chunk_size and (i + 1) % chunk_size == 0 and rows:
             all_rows.append(torch.cat(rows))
             all_cols.append(torch.cat(cols))
             rows, cols = [], []
-            
+
     if rows:
         all_rows.append(torch.cat(rows))
         all_cols.append(torch.cat(cols))
@@ -1279,8 +1443,13 @@ def build_node_cycle_adjacency_from_cycles(cycles, num_nodes, device=None, dtype
     row_t = torch.cat(all_rows)
     col_t = torch.cat(all_cols)
     val_t = torch.ones(len(row_t), dtype=dtype, device=device)
-    
-    adj = torch.sparse_coo_tensor(torch.stack([row_t, col_t]), val_t, size=(num_nodes, num_nodes), device=device).coalesce()
+
+    adj = torch.sparse_coo_tensor(
+        torch.stack([row_t, col_t]),
+        val_t,
+        size=(num_nodes, num_nodes),
+        device=device,
+    ).coalesce()
     return binarize_sparse(adj)
 
 
@@ -1300,35 +1469,94 @@ def get_connectivity_from_incidences_selective(
     normalize_laplacians=False,
 ):
     """Memory-aware selective connectivity builder.
-    
+
     If neighborhoods is None, it warns and returns only incidences to prevent OOM.
+
+    Parameters
+    ----------
+    incidences : dict
+        Dictionary of incidence matrices.
+    shape : list
+        Shape of elements at each rank.
+    max_rank : int
+        Maximum rank to process.
+    neighborhoods : list, optional
+        List of neighborhoods to compute. Default is None.
+    signed : bool, optional
+        Whether to compute signed connectivity. Default is False.
+    include_all_incidences : bool, optional
+        Whether to include all incidence matrices in output. Default is True.
+    legacy_keys : bool, optional
+        Whether to use legacy key names. Default is True.
+    cycles : list of lists, optional
+        List of nodes in each cycle. Default is None.
+    cycle_edges : list of lists, optional
+        List of edges in each cycle. Default is None.
+    adjacency_strategy : str, optional
+        Adjacency computation strategy. Default is "pairs".
+    required_keys : list, optional
+        List of required keys. Default is None.
+    chunk_size : int, optional
+        Chunk size for sparse tensor construction. Default is 1000.
+    normalize_laplacians : bool, optional
+        Whether to normalize Laplacian tensors. Default is False.
+
+    Returns
+    -------
+    dict
+        Dictionary containing the constructed connectivity.
     """
     import warnings
+
     connectivity = {"shape": shape}
-    
+
     if include_all_incidences:
         for r, inc in incidences.items():
             connectivity[f"incidence_{r}"] = inc
 
     if neighborhoods is None and required_keys is None:
-        warnings.warn("No neighborhoods specified for selective builder. Returning only incidences to avoid OOM.")
+        warnings.warn(
+            "No neighborhoods specified for selective builder. Returning only incidences to avoid OOM.",
+            stacklevel=2,
+        )
         neighborhoods = []
-        
+
     targets = set(neighborhoods or []) | set(required_keys or [])
-    
+
     def get_inc(r):
-        if r in incidences: return incidences[r]
-        if r <= 0: return zero_sparse(0, shape[0] if len(shape) > 0 else 0)
-        if r > len(shape) - 1: return zero_sparse(shape[-1] if len(shape) > 0 else 0, 0)
-        return zero_sparse(shape[r-1], shape[r])
-        
+        """Get the incidence matrix at rank r.
+
+        Parameters
+        ----------
+        r : int
+            Rank index.
+
+        Returns
+        -------
+        torch.Tensor
+            Incidence matrix at rank r.
+        """
+        if r in incidences:
+            return incidences[r]
+        if r <= 0:
+            return zero_sparse(0, shape[0] if len(shape) > 0 else 0)
+        if r > len(shape) - 1:
+            return zero_sparse(shape[-1] if len(shape) > 0 else 0, 0)
+        return zero_sparse(shape[r - 1], shape[r])
+
     for t in targets:
         t_normalized = t.replace("_", "-")
-        
+
         if t_normalized == "up-adjacency-1" or t == "adjacency_1":
             if adjacency_strategy == "pairs" and cycle_edges is not None:
                 ref_inc = get_inc(2)
-                adj = build_edge_cycle_adjacency_from_cycle_edges(cycle_edges, shape[1], device=ref_inc.device, dtype=ref_inc.dtype, chunk_size=chunk_size)
+                adj = build_edge_cycle_adjacency_from_cycle_edges(
+                    cycle_edges,
+                    shape[1],
+                    device=ref_inc.device,
+                    dtype=ref_inc.dtype,
+                    chunk_size=chunk_size,
+                )
             else:
                 inc2 = get_inc(2)
                 adj = remove_diag_sparse(safe_sparse_mm(inc2, inc2.T))
@@ -1340,7 +1568,13 @@ def get_connectivity_from_incidences_selective(
         elif t_normalized == "2-up-adjacency-0" or t == "2-up_adjacency-0":
             if adjacency_strategy == "pairs" and cycles is not None:
                 ref_inc = get_inc(1)
-                adj = build_node_cycle_adjacency_from_cycles(cycles, shape[0], device=ref_inc.device, dtype=ref_inc.dtype, chunk_size=chunk_size)
+                adj = build_node_cycle_adjacency_from_cycles(
+                    cycles,
+                    shape[0],
+                    device=ref_inc.device,
+                    dtype=ref_inc.dtype,
+                    chunk_size=chunk_size,
+                )
             else:
                 inc1 = get_inc(1)
                 inc2 = get_inc(2)
@@ -1352,8 +1586,12 @@ def get_connectivity_from_incidences_selective(
 
         elif t_normalized == "up-laplacian-1" or t == "up_laplacian_1":
             inc2 = get_inc(2)
-            
-            if adjacency_strategy == "pairs" and cycle_edges is not None and not signed:
+
+            if (
+                adjacency_strategy == "pairs"
+                and cycle_edges is not None
+                and not signed
+            ):
                 uplap = build_edge_cycle_laplacian_from_cycle_edges(
                     cycle_edges,
                     shape[1],
@@ -1365,24 +1603,28 @@ def get_connectivity_from_incidences_selective(
                 uplap = safe_sparse_mm(inc2, inc2.T)
                 if not signed:
                     uplap = abs_sparse(uplap)
-            
+
             if normalize_laplacians:
-                uplap = gcn_normalize_sparse_tensor(uplap, add_self_loops=False)
-                    
+                uplap = gcn_normalize_sparse_tensor(
+                    uplap, add_self_loops=False
+                )
+
             connectivity[t] = uplap
             if legacy_keys:
                 connectivity["up_laplacian_1"] = uplap
                 connectivity["up_laplacian-1"] = uplap
-                
+
         elif t_normalized == "down-laplacian-1" or t == "down_laplacian_1":
             inc1 = get_inc(1)
             downlap = safe_sparse_mm(inc1.T, inc1)
             if not signed:
                 downlap = abs_sparse(downlap)
-                
+
             if normalize_laplacians:
-                downlap = gcn_normalize_sparse_tensor(downlap, add_self_loops=False)
-                
+                downlap = gcn_normalize_sparse_tensor(
+                    downlap, add_self_loops=False
+                )
+
             connectivity[t] = downlap
             if legacy_keys:
                 connectivity["down_laplacian_1"] = downlap
@@ -1395,7 +1637,7 @@ def get_connectivity_from_incidences_selective(
             if legacy_keys:
                 connectivity["adjacency_0"] = adj
                 connectivity["up_adjacency-0"] = adj
-                
+
         elif t_normalized == "down-adjacency-1" or t == "coadjacency_1":
             inc1 = get_inc(1)
             adj = remove_diag_sparse(safe_sparse_mm(inc1.T, inc1))
@@ -1408,7 +1650,7 @@ def get_connectivity_from_incidences_selective(
             connectivity[t] = get_inc(1).T
             if legacy_keys:
                 connectivity["up_incidence-0"] = get_inc(1).T
-                
+
         elif t_normalized == "down-incidence-2":
             connectivity[t] = get_inc(2)
             if legacy_keys:
@@ -1418,4 +1660,3 @@ def get_connectivity_from_incidences_selective(
             raise ValueError(f"Unsupported neighborhood: {t}")
 
     return connectivity
-

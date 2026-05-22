@@ -1,7 +1,6 @@
 """Fast clique lifting bypassing toponetx object construction."""
 
 from itertools import combinations
-from typing import Any
 
 import networkx as nx
 import numpy as np
@@ -52,10 +51,10 @@ class SimplicialCliqueLiftingFast(Graph2SimplicialLifting):
 
         # --- Collect simplices per rank using compact tensor representation ---
         simplices_by_rank = [None] * (self.complex_dim + 1)
-        
+
         # Rank 0: Nodes
         simplices_by_rank[0] = torch.arange(num_nodes).view(-1, 1)
-        
+
         # Rank 1: Edges (Sorted)
         edges = sorted([tuple(sorted(e)) for e in graph.edges()])
         simplices_by_rank[1] = torch.tensor(edges, dtype=torch.long)
@@ -67,31 +66,37 @@ class SimplicialCliqueLiftingFast(Graph2SimplicialLifting):
                 if len(clique) >= rank + 1:
                     for c in combinations(sorted(clique), rank + 1):
                         s_set.add(c)
-            
+
             if s_set:
                 # Convert to sorted tensor for fast indexing later
-                simplices_by_rank[rank] = torch.tensor(sorted(list(s_set)), dtype=torch.long)
+                simplices_by_rank[rank] = torch.tensor(
+                    sorted(list(s_set)), dtype=torch.long
+                )
             else:
-                simplices_by_rank[rank] = torch.empty((0, rank + 1), dtype=torch.long)
+                simplices_by_rank[rank] = torch.empty(
+                    (0, rank + 1), dtype=torch.long
+                )
 
         # --- Build incidence matrices ---
         incidences = {}
 
         # incidence_0: (1 x num_nodes)
         incidences[0] = torch.sparse_coo_tensor(
-            torch.stack([
-                torch.zeros(num_nodes, dtype=torch.long),
-                torch.arange(num_nodes, dtype=torch.long)
-            ]),
+            torch.stack(
+                [
+                    torch.zeros(num_nodes, dtype=torch.long),
+                    torch.arange(num_nodes, dtype=torch.long),
+                ]
+            ),
             torch.ones(num_nodes, dtype=torch.float),
-            size=(1, num_nodes)
+            size=(1, num_nodes),
         ).coalesce()
 
         # incidence_k for k >= 1
         for rank in range(1, self.complex_dim + 1):
             k_simplices = simplices_by_rank[rank]
             km1_simplices = simplices_by_rank[rank - 1]
-            
+
             if k_simplices.shape[0] == 0:
                 incidences[rank] = torch.sparse_coo_tensor(
                     size=(km1_simplices.shape[0], 0)
@@ -101,7 +106,7 @@ class SimplicialCliqueLiftingFast(Graph2SimplicialLifting):
             # Vectorized Face Generation
             num_k = k_simplices.shape[0]
             S = rank + 1
-            
+
             all_faces = []
             for i in range(S):
                 # Remove i-th vertex
@@ -109,32 +114,41 @@ class SimplicialCliqueLiftingFast(Graph2SimplicialLifting):
                 mask[i] = False
                 face = k_simplices[:, mask]
                 all_faces.append(face)
-            
+
             # faces_tensor: (S * num_k, rank)
             faces_tensor = torch.cat(all_faces, dim=0)
-            
+
             # Lexicographical sort key for 2D array
             target = km1_simplices.numpy()
             query = faces_tensor.numpy()
-            
+
             def get_sort_key(arr):
-                return arr.view(np.dtype((np.void, arr.dtype.itemsize * arr.shape[1])))
+                return arr.view(
+                    np.dtype((np.void, arr.dtype.itemsize * arr.shape[1]))
+                )
 
             target_view = get_sort_key(target)
             query_view = get_sort_key(query)
-            
-            row_indices = np.searchsorted(target_view.ravel(), query_view.ravel())
+
+            row_indices = np.searchsorted(
+                target_view.ravel(), query_view.ravel()
+            )
             col_indices = torch.arange(num_k).repeat(S)
-            
+
             # Boundary values
             if self.signed:
-                single_vals = torch.tensor([(-1.0)**i for i in range(S)])
+                single_vals = torch.tensor([(-1.0) ** i for i in range(S)])
                 vals = single_vals.repeat_interleave(num_k)
             else:
                 vals = torch.ones(S * num_k)
 
             incidences[rank] = torch.sparse_coo_tensor(
-                torch.stack([torch.from_numpy(row_indices.astype(np.int64)), col_indices]),
+                torch.stack(
+                    [
+                        torch.from_numpy(row_indices.astype(np.int64)),
+                        col_indices,
+                    ]
+                ),
                 vals,
                 size=(km1_simplices.shape[0], k_simplices.shape[0]),
             ).coalesce()
@@ -153,7 +167,10 @@ class SimplicialCliqueLiftingFast(Graph2SimplicialLifting):
         lifted_topology["x_0"] = data.x
 
         # Preserve edge attributes if applicable
-        if self.contains_edge_attr and simplices_by_rank[1].shape[0] == graph.number_of_edges():
+        if (
+            self.contains_edge_attr
+            and simplices_by_rank[1].shape[0] == graph.number_of_edges()
+        ):
             edge_list = [tuple(e.tolist()) for e in simplices_by_rank[1]]
             lifted_topology["x_1"] = self._reorder_edge_attr(
                 data, graph, edge_list

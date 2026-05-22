@@ -1,7 +1,6 @@
 """Fast cell cycle lifting using igraph backend."""
 
 import igraph as ig
-import numpy as np
 import torch
 import torch_geometric
 
@@ -14,7 +13,7 @@ from topobench.transforms.liftings.graph2cell.base import (
 class CellCycleLiftingIG(Graph2CellLifting):
     r"""Lift graphs to cell complexes (fast, igraph backend).
 
-    Connectivity matrices are built directly as PyTorch sparse tensors. 
+    Connectivity matrices are built directly as PyTorch sparse tensors.
     It uses `python-igraph` for high-performance cycle finding.
 
     Parameters
@@ -52,19 +51,22 @@ class CellCycleLiftingIG(Graph2CellLifting):
             u, v = ei[0, i].item(), ei[1, i].item()
             if u != v:
                 edge_set.add((min(u, v), max(u, v)))
-        
+
         sorted_edges = sorted(edge_set)
         num_edges = len(sorted_edges)
 
         # Create igraph object
         graph = ig.Graph(n=num_nodes, edges=sorted_edges)
-        
+
         # --- Find fundamental cycles via igraph ---
         cycle_edge_indices = graph.fundamental_cycles()
 
-        # Filter by max_cell_length if needed
+        # Filter by length >= 3 and max_cell_length if needed
+        cycle_edge_indices = [c for c in cycle_edge_indices if len(c) >= 3]
         if self.max_cell_length is not None:
-            cycle_edge_indices = [c for c in cycle_edge_indices if len(c) <= self.max_cell_length]
+            cycle_edge_indices = [
+                c for c in cycle_edge_indices if len(c) <= self.max_cell_length
+            ]
 
         num_cells = len(cycle_edge_indices)
 
@@ -72,29 +74,31 @@ class CellCycleLiftingIG(Graph2CellLifting):
         incidences = {}
 
         # incidence_0
-        incidences[0] = torch.sparse_coo_tensor(
-            size=(0, num_nodes)
-        ).coalesce()
+        incidences[0] = torch.sparse_coo_tensor(size=(0, num_nodes)).coalesce()
 
         # incidence_1
         edge_tensor = torch.tensor(sorted_edges, dtype=torch.long)
         num_k1 = edge_tensor.shape[0]
-        rows_1 = edge_tensor.t().contiguous().view(-1)
-        cols_1 = torch.arange(num_k1).repeat_interleave(2)
-        vals_1 = torch.tensor([-1.0, 1.0]).repeat(num_k1)
-
-        incidences[1] = torch.sparse_coo_tensor(
-            torch.stack([rows_1, cols_1]),
-            vals_1,
-            size=(num_nodes, num_edges),
-        ).coalesce()
+        if num_k1 > 0:
+            rows_1 = torch.cat([edge_tensor[:, 0], edge_tensor[:, 1]])
+            cols_1 = torch.cat([torch.arange(num_k1), torch.arange(num_k1)])
+            vals_1 = torch.cat([-torch.ones(num_k1), torch.ones(num_k1)])
+            incidences[1] = torch.sparse_coo_tensor(
+                torch.stack([rows_1, cols_1]),
+                vals_1,
+                size=(num_nodes, num_edges),
+            ).coalesce()
+        else:
+            incidences[1] = torch.sparse_coo_tensor(
+                size=(num_nodes, num_edges)
+            ).coalesce()
 
         # incidence_2: (num_edges x num_cells)
         if num_cells > 0:
             # We need to traverse each cycle to assign orientations.
             # While fundamental_cycles gives edge IDs, they aren't necessarily ordered.
             rows_2, cols_2, vals_2 = [], [], []
-            
+
             # Pre-calculate adjacency for fast traversal
             adj = [[] for _ in range(num_nodes)]
             for e_idx, (u, v) in enumerate(sorted_edges):
@@ -102,22 +106,20 @@ class CellCycleLiftingIG(Graph2CellLifting):
                 adj[v].append((u, e_idx))
 
             for cell_idx, edge_ids in enumerate(cycle_edge_indices):
-                if len(edge_ids) < 3: continue
-                
                 curr_edge_set = set(edge_ids)
                 # Find a starting node that has edges in this cycle
                 e_start_idx = edge_ids[0]
                 u_start, v_start = sorted_edges[e_start_idx]
-                
+
                 # Traverse the cycle
                 curr_v = v_start
                 prev_e = e_start_idx
-                
+
                 # First edge orientation
                 rows_2.append(e_start_idx)
                 cols_2.append(cell_idx)
                 vals_2.append(1.0 if u_start < v_start else -1.0)
-                
+
                 for _ in range(len(edge_ids) - 1):
                     next_e = -1
                     next_v = -1
@@ -126,17 +128,23 @@ class CellCycleLiftingIG(Graph2CellLifting):
                             next_e = e_idx
                             next_v = neighbor
                             break
-                    if next_e == -1: break
-                    
+                    if next_e == -1:
+                        break
+
                     rows_2.append(next_e)
                     cols_2.append(cell_idx)
                     vals_2.append(1.0 if curr_v < next_v else -1.0)
-                    
+
                     prev_e = next_e
                     curr_v = next_v
 
             incidences[2] = torch.sparse_coo_tensor(
-                torch.stack([torch.tensor(rows_2, dtype=torch.long), torch.tensor(cols_2, dtype=torch.long)]),
+                torch.stack(
+                    [
+                        torch.tensor(rows_2, dtype=torch.long),
+                        torch.tensor(cols_2, dtype=torch.long),
+                    ]
+                ),
                 torch.tensor(vals_2, dtype=torch.float),
                 size=(num_edges, num_cells),
             ).coalesce()
@@ -157,7 +165,9 @@ class CellCycleLiftingIG(Graph2CellLifting):
 
         lifted_topology["x_0"] = data.x
 
-        has_edge_attr = hasattr(data, "edge_attr") and data.edge_attr is not None
+        has_edge_attr = (
+            hasattr(data, "edge_attr") and data.edge_attr is not None
+        )
         if has_edge_attr and num_edges == (data.edge_index.size(1) // 2):
             lifted_topology["x_1"] = self._reorder_edge_attr(
                 data, sorted_edges
@@ -167,6 +177,20 @@ class CellCycleLiftingIG(Graph2CellLifting):
 
     @staticmethod
     def _reorder_edge_attr(data, sorted_edges):
+        """Reorder edge attributes to match canonical sorted edges.
+
+        Parameters
+        ----------
+        data : torch_geometric.data.Data
+            The input graph data object.
+        sorted_edges : list of tuple
+            The list of edges sorted canonically.
+
+        Returns
+        -------
+        torch.Tensor
+            The reordered edge attributes tensor.
+        """
         ei = data.edge_index
         data_edge_map = {}
         for idx in range(ei.size(1)):

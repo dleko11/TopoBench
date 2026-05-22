@@ -49,7 +49,7 @@ class CellCycleLiftingFast(Graph2CellLifting):
 
         # --- Canonical edge ordering ---
         sorted_edges = sorted(graph.edges())
-        edge_map = {e: i for i, e in enumerate(sorted_edges)}
+        {e: i for i, e in enumerate(sorted_edges)}
         num_edges = len(sorted_edges)
 
         # --- Find cycles ---
@@ -68,23 +68,25 @@ class CellCycleLiftingFast(Graph2CellLifting):
         incidences = {}
 
         # incidence_0: placeholder (0 x num_nodes zero)
-        incidences[0] = torch.sparse_coo_tensor(
-            size=(0, num_nodes)
-        ).coalesce()
+        incidences[0] = torch.sparse_coo_tensor(size=(0, num_nodes)).coalesce()
 
         # incidence_1: (num_nodes x num_edges)
         # Vectorized construction
         edge_tensor = torch.tensor(sorted_edges, dtype=torch.long)
         num_k1 = edge_tensor.shape[0]
-        rows_1 = edge_tensor.t().contiguous().view(-1)
-        cols_1 = torch.arange(num_k1).repeat_interleave(2)
-        vals_1 = torch.tensor([-1.0, 1.0]).repeat(num_k1)
-
-        incidences[1] = torch.sparse_coo_tensor(
-            torch.stack([rows_1, cols_1]),
-            vals_1,
-            size=(num_nodes, num_edges),
-        ).coalesce()
+        if num_k1 > 0:
+            rows_1 = torch.cat([edge_tensor[:, 0], edge_tensor[:, 1]])
+            cols_1 = torch.cat([torch.arange(num_k1), torch.arange(num_k1)])
+            vals_1 = torch.cat([-torch.ones(num_k1), torch.ones(num_k1)])
+            incidences[1] = torch.sparse_coo_tensor(
+                torch.stack([rows_1, cols_1]),
+                vals_1,
+                size=(num_nodes, num_edges),
+            ).coalesce()
+        else:
+            incidences[1] = torch.sparse_coo_tensor(
+                size=(num_nodes, num_edges)
+            ).coalesce()
 
         # incidence_2: (num_edges x num_cells)
         if num_cells > 0:
@@ -94,44 +96,59 @@ class CellCycleLiftingFast(Graph2CellLifting):
             for cycle in cycles:
                 cycle_nodes.extend(cycle)
                 cycle_ptr.append(cycle_ptr[-1] + len(cycle))
-            
+
             nodes_flat = torch.tensor(cycle_nodes, dtype=torch.long)
             ptr = torch.tensor(cycle_ptr, dtype=torch.long)
-            
+
             # For each cycle [v0, v1, ..., vL-1], the edges are (v0, v1), (v1, v2), ..., (vL-1, v0)
-            u = nodes_flat # v0, v1, ..., vL-1
+            u = nodes_flat  # v0, v1, ..., vL-1
             # v calculation: shift nodes_flat within each cycle range
             v = torch.empty_like(nodes_flat)
             for i in range(num_cells):
-                start, end = ptr[i], ptr[i+1]
-                v[start : end-1] = nodes_flat[start+1 : end]
-                v[end-1] = nodes_flat[start]
-            
+                start, end = ptr[i], ptr[i + 1]
+                v[start : end - 1] = nodes_flat[start + 1 : end]
+                v[end - 1] = nodes_flat[start]
+
             # Canonical edges for lookup
             e_min = torch.minimum(u, v)
             e_max = torch.maximum(u, v)
             query = torch.stack([e_min, e_max], dim=1).numpy()
-            
+
             # Target edges (Rank 1)
             target = edge_tensor.numpy()
-            
+
             def get_sort_key(arr):
-                return arr.view(np.dtype((np.void, arr.dtype.itemsize * arr.shape[1])))
-            
+                return arr.view(
+                    np.dtype((np.void, arr.dtype.itemsize * arr.shape[1]))
+                )
+
             target_view = get_sort_key(target)
             query_view = get_sort_key(query)
-            
-            row_indices = np.searchsorted(target_view.ravel(), query_view.ravel())
-            
+
+            row_indices = np.searchsorted(
+                target_view.ravel(), query_view.ravel()
+            )
+
             # Column indices: repeat each cell_idx L times
             cell_lengths = ptr[1:] - ptr[:-1]
-            col_indices = torch.repeat_interleave(torch.arange(num_cells), cell_lengths)
-            
+            col_indices = torch.repeat_interleave(
+                torch.arange(num_cells), cell_lengths
+            )
+
             # Orientation: +1 if u < v (matches canonical order), -1 otherwise
-            vals_2 = torch.where(u < v, torch.ones_like(u, dtype=torch.float), -torch.ones_like(u, dtype=torch.float))
-            
+            vals_2 = torch.where(
+                u < v,
+                torch.ones_like(u, dtype=torch.float),
+                -torch.ones_like(u, dtype=torch.float),
+            )
+
             incidences[2] = torch.sparse_coo_tensor(
-                torch.stack([torch.from_numpy(row_indices.astype(np.int64)), col_indices]),
+                torch.stack(
+                    [
+                        torch.from_numpy(row_indices.astype(np.int64)),
+                        col_indices,
+                    ]
+                ),
                 vals_2,
                 size=(num_edges, num_cells),
             ).coalesce()

@@ -125,38 +125,68 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         from topobench.dataloader import ClusterGCNDataModule
 
         preprocessor = PreProcessor(dataset, dataset_dir, None)
-        post_batch_transform = build_cluster_transform(transform_config)
+        build_cluster_transform(transform_config)
 
         handle = preprocessor.pack_global_partition(
             split_params=cfg.dataset.get("split_params", {}),
             cluster_params=cfg.dataset.loader.parameters.get("cluster", {}),
             stream_params=cfg.dataset.loader.parameters.get("stream", {}),
-            dtype_policy=cfg.dataset.loader.parameters.get("dtype_policy", "preserve"),
+            dtype_policy=cfg.dataset.loader.parameters.get(
+                "dtype_policy", "preserve"
+            ),
             pack_db=True,
             pack_memmaps=True,
         )
 
-        transform_cfg_container = OmegaConf.to_container(transform_config, resolve=True) if transform_config is not None else None
-        val_cache_fingerprint = make_hash({
-            "partition_hash": handle.get("config_hash", None),
-            "transform": transform_cfg_container,
-            "q_val": cfg.dataset.loader.parameters.get("stream", {}).get("q_val", None),
-            "with_edge_attr": cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
-        })
+        transform_cfg_container = (
+            OmegaConf.to_container(transform_config, resolve=True)
+            if transform_config is not None
+            else None
+        )
+        val_cache_fingerprint = make_hash(
+            {
+                "partition_hash": handle.get("config_hash", None),
+                "transform": transform_cfg_container,
+                "q_val": cfg.dataset.loader.parameters.get("stream", {}).get(
+                    "q_val", None
+                ),
+                "with_edge_attr": cfg.dataset.loader.parameters.get(
+                    "stream", {}
+                ).get("with_edge_attr", False),
+            }
+        )
 
         # Build streaming loaders
         datamodule = ClusterGCNDataModule(
             data_handle=handle,
             q=cfg.dataset.loader.parameters.get("stream", {}).get("q", 1),
-            q_test=cfg.dataset.loader.parameters.get("stream", {}).get("q_test", None),
-            q_val=cfg.dataset.loader.parameters.get("stream", {}).get("q_val", None),
-            val_batches=cfg.dataset.loader.parameters.get("stream", {}).get("val_batches", 5),
-            test_batches=cfg.dataset.loader.parameters.get("stream", {}).get("test_batches", None),
-            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get("num_workers", 0),
-            cache_num_workers=cfg.dataset.loader.parameters.get("stream", {}).get("cache_num_workers", None),
-            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get("pin_memory", False),
-            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
-            eval_cover_strategy=cfg.get("eval", {}).get("cover_strategy", "all_parts"),
+            q_test=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "q_test", None
+            ),
+            q_val=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "q_val", None
+            ),
+            val_batches=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "val_batches", 5
+            ),
+            test_batches=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "test_batches", None
+            ),
+            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "num_workers", 0
+            ),
+            cache_num_workers=cfg.dataset.loader.parameters.get(
+                "stream", {}
+            ).get("cache_num_workers", None),
+            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "pin_memory", False
+            ),
+            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "with_edge_attr", False
+            ),
+            eval_cover_strategy=cfg.get("eval", {}).get(
+                "cover_strategy", "all_parts"
+            ),
             seed=cfg.get("seed", 42),
             transform_config=transform_cfg_container,
             cache_val=True,
@@ -222,9 +252,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         )
         # Log the best model checkpoint path into wandb
         for logger_elem in logger:
-            if isinstance(
-                logger_elem, WandbLogger
-            ) and hasattr(logger_elem, "experiment"):
+            if isinstance(logger_elem, WandbLogger) and hasattr(
+                logger_elem, "experiment"
+            ):
                 logger_elem.experiment.log(
                     {"checkpoint": trainer.checkpoint_callback.best_model_path}
                 )
