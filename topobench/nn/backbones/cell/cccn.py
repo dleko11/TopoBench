@@ -20,13 +20,16 @@ class CCCN(nn.Module):
         If True, the last activation function is applied (default: False).
     """
 
-    def __init__(self, in_channels, n_layers=2, dropout=0.0, last_act=False):
+    def __init__(self, in_channels, n_layers=2, dropout=0.0, last_act=False, use_pre_normalized_operators=False):
         super().__init__()
         self.d = dropout
         self.convs = nn.ModuleList()
         self.last_act = last_act
+        self.use_pre_normalized_operators = use_pre_normalized_operators
+        
+        normalize = not self.use_pre_normalized_operators
         for _ in range(n_layers):
-            self.convs.append(CW(in_channels, in_channels))
+            self.convs.append(CW(in_channels, in_channels, normalize=normalize))
 
     def forward(self, x, Ld, Lu):
         r"""Forward pass.
@@ -64,11 +67,11 @@ class CW(nn.Module):
         Number of output channels.
     """
 
-    def __init__(self, F_in, F_out):
+    def __init__(self, F_in, F_out, normalize=True):
         super().__init__()
         self.har = nn.Linear(F_in, F_out)
-        self.sol = GCNConv(F_in, F_out, add_self_loops=False)
-        self.irr = GCNConv(F_in, F_out, add_self_loops=False)
+        self.sol = GCNConv(F_in, F_out, add_self_loops=False, normalize=normalize)
+        self.irr = GCNConv(F_in, F_out, add_self_loops=False, normalize=normalize)
 
     def forward(self, xe, Lu, Ld):
         r"""Forward pass.
@@ -91,3 +94,4 @@ class CW(nn.Module):
         z_s = self.sol(xe, Lu)
         z_i = self.irr(xe, Ld)
         return z_h + z_s + z_i
+
