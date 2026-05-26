@@ -8,6 +8,7 @@ from .utils import (
     get_combinatorial_complex_connectivity,  # noqa: F401
     get_complex_connectivity,  # noqa: F401
     get_routes_from_neighborhoods,  # noqa: F401
+    get_simplicial_connectivity_from_incidences_selective,  # noqa: F401
     load_cell_complex_dataset,  # noqa: F401
     load_manual_graph,  # noqa: F401
     load_simplicial_dataset,  # noqa: F401
@@ -18,6 +19,7 @@ from .utils import (
 utils_functions = [
     "get_combinatorial_complex_connectivity",
     "get_complex_connectivity",
+    "get_simplicial_connectivity_from_incidences_selective",
     "get_routes_from_neighborhoods",
     "generate_zero_sparse_connectivity",
     "load_cell_complex_dataset",

@@ -11,6 +11,9 @@ from topobench.data.utils.utils import get_complex_connectivity_from_incidences
 from topobench.transforms.liftings.graph2simplicial import (
     Graph2SimplicialLifting,
 )
+from topobench.transforms.liftings.graph2simplicial._clique_utils import (
+    find_simplex_indices,
+)
 
 
 class SimplicialCliqueLiftingIG(Graph2SimplicialLifting):
@@ -126,29 +129,14 @@ class SimplicialCliqueLiftingIG(Graph2SimplicialLifting):
 
             faces_tensor = torch.cat(all_faces, dim=0)
 
-            # Using numpy searchsorted for 2D lexicographical search
             target = km1_simplices.numpy()
             query = faces_tensor.numpy()
-
-            def get_sort_key(arr):
-                return arr.view(
-                    np.dtype((np.void, arr.dtype.itemsize * arr.shape[1]))
-                )
-
-            target_view = get_sort_key(target)
-            query_view = get_sort_key(query)
-
-            row_indices = np.searchsorted(
-                target_view.ravel(), query_view.ravel()
-            )
+            row_indices = find_simplex_indices(target, query)
 
             col_indices = torch.arange(num_k).repeat(S)
 
-            if self.signed:
-                single_vals = torch.tensor([(-1.0) ** i for i in range(S)])
-                vals = single_vals.repeat_interleave(num_k)
-            else:
-                vals = torch.ones(S * num_k)
+            single_vals = torch.tensor([(-1.0) ** i for i in range(S)])
+            vals = single_vals.repeat_interleave(num_k)
 
             incidences[rank] = torch.sparse_coo_tensor(
                 torch.stack(
