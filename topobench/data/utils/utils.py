@@ -228,16 +228,543 @@ def get_complex_connectivity_from_incidences(
             )
 
         # --- 4. hodge_laplacian (rank r) ---
-        connectivity[f"hodge_laplacian_{rank_idx}"] = (
-            connectivity[f"down_laplacian_{rank_idx}"]
-            + connectivity[f"up_laplacian_{rank_idx}"]
-        ).coalesce()
+        # TopoNetX computes the Hodge Laplacian from signed boundary
+        # operators. For unsigned output it then returns absolute values,
+        # which is not equivalent to adding unsigned up/down Laplacians.
+        B_r_signed = incidences.get(rank_idx)
+        if B_r_signed is not None and rank_idx >= 1:
+            signed_down_prod = assemble_connectivity(B_r_signed, layout="down")
+        else:
+            signed_down_prod = generate_zero_sparse_connectivity(m=n_r, n=n_r)
+
+        B_rp1_signed = incidences.get(rank_idx + 1)
+        if B_rp1_signed is not None:
+            signed_up_prod = assemble_connectivity(B_rp1_signed, layout="up")
+        else:
+            signed_up_prod = generate_zero_sparse_connectivity(m=n_r, n=n_r)
+
+        hodge_laplacian = (signed_down_prod + signed_up_prod).coalesce()
+        if not signed:
+            hodge_laplacian = abs_sparse(hodge_laplacian)
+        connectivity[f"hodge_laplacian_{rank_idx}"] = hodge_laplacian
 
     if neighborhoods is not None:
         connectivity = select_neighborhoods_of_interest(
             connectivity, neighborhoods
         )
     connectivity["shape"] = practical_shape
+    return connectivity
+
+
+def _parse_neighborhood_target(target):
+    """Parse a connectivity target into type, rank, and hop distance.
+
+    Parameters
+    ----------
+    target : str
+        Neighborhood or canonical connectivity key.
+
+    Returns
+    -------
+    tuple
+        Parsed neighborhood type, rank, and hop distance.
+    """
+    if target.startswith("incidence_") and "-" not in target:
+        return "incidence", int(target.rsplit("_", 1)[1]), 1
+
+    if "-" in target:
+        target_prefix, rank = target.rsplit("-", 1)
+        if "-" in target_prefix:
+            hop, neighborhood_type = target_prefix.split("-", 1)
+            if hop.isdigit():
+                return neighborhood_type.replace("-", "_"), int(rank), int(hop)
+        neighborhood_type = target_prefix.replace("-", "_")
+        if neighborhood_type == "adjacency":
+            neighborhood_type = "up_adjacency"
+        elif neighborhood_type == "coadjacency":
+            neighborhood_type = "down_adjacency"
+        return neighborhood_type, int(rank), 1
+
+    target_type, rank = target.rsplit("_", 1)
+    if target_type == "adjacency":
+        target_type = "up_adjacency"
+    elif target_type == "coadjacency":
+        target_type = "down_adjacency"
+    return target_type, int(rank), 1
+
+
+def _connectivity_aliases(neighborhood_type, rank, hop=1):
+    """Return compatible key aliases for a parsed connectivity target.
+
+    Parameters
+    ----------
+    neighborhood_type : str
+        Parsed neighborhood type.
+    rank : int
+        Cell rank for the neighborhood.
+    hop : int, optional
+        Hop distance for multi-hop neighborhoods.
+
+    Returns
+    -------
+    set
+        Compatible aliases for the neighborhood.
+    """
+    hyphen_type = neighborhood_type.replace("_", "-")
+    aliases = {
+        f"{neighborhood_type}-{rank}",
+        f"{hyphen_type}-{rank}",
+    }
+
+    if hop != 1:
+        aliases.update(
+            {
+                f"{hop}-{neighborhood_type}-{rank}",
+                f"{hop}-{hyphen_type}-{rank}",
+            }
+        )
+        return aliases
+
+    if neighborhood_type == "up_adjacency":
+        aliases.add(f"adjacency_{rank}")
+    elif neighborhood_type == "down_adjacency":
+        aliases.add(f"coadjacency_{rank}")
+    elif neighborhood_type in {
+        "up_laplacian",
+        "down_laplacian",
+        "hodge_laplacian",
+        "incidence",
+    }:
+        aliases.add(f"{neighborhood_type}_{rank}")
+
+    return aliases
+
+
+def _store_with_aliases(
+    connectivity, target, value, neighborhood_type=None, rank=None, hop=1
+):
+    """Store a connectivity tensor under requested and canonical aliases.
+
+    Parameters
+    ----------
+    connectivity : dict
+        Connectivity dictionary to update.
+    target : str
+        Requested neighborhood key.
+    value : torch.Tensor
+        Connectivity tensor to store.
+    neighborhood_type : str, optional
+        Parsed neighborhood type.
+    rank : int, optional
+        Cell rank for the neighborhood.
+    hop : int, optional
+        Hop distance for multi-hop neighborhoods.
+    """
+    connectivity[target] = value
+    if neighborhood_type is None or rank is None:
+        neighborhood_type, rank, hop = _parse_neighborhood_target(target)
+    for alias in _connectivity_aliases(neighborhood_type, rank, hop):
+        connectivity.setdefault(alias, value)
+
+
+def get_simplicial_connectivity_from_incidences_selective(
+    incidences,
+    shape,
+    max_rank,
+    neighborhoods=None,
+    signed=False,
+    required_keys=None,
+):
+    """Compute only requested simplicial connectivity matrices.
+
+    Parameters
+    ----------
+    incidences : dict
+        Dictionary mapping rank to sparse PyTorch incidence matrices.
+    shape : list
+        List of simplex counts per rank.
+    max_rank : int
+        Maximum simplex rank.
+    neighborhoods : list, optional
+        Neighborhood keys to construct.
+    signed : bool, optional
+        Whether to expose signed incidences and signed operators.
+    required_keys : list, optional
+        Extra connectivity keys to construct.
+
+    Returns
+    -------
+    dict
+        Dictionary containing incidences, requested connectivities, aliases,
+        and shape.
+    """
+    import warnings
+
+    practical_shape = list(
+        np.pad(shape, (0, max(0, max_rank + 1 - len(shape))))
+    )
+    connectivity = {"shape": practical_shape}
+
+    first_incidence = next(iter(incidences.values()), None)
+    device = first_incidence.device if first_incidence is not None else None
+    dtype = (
+        first_incidence.dtype if first_incidence is not None else torch.float
+    )
+
+    def zero(m, n):
+        """Create a zero sparse matrix on the incidence device.
+
+        Parameters
+        ----------
+        m : int
+            Number of rows.
+        n : int
+            Number of columns.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse zero matrix.
+        """
+        return zero_sparse(m, n, device=device, dtype=dtype)
+
+    def raw_incidence(rank):
+        """Return the signed incidence matrix for a rank.
+
+        Parameters
+        ----------
+        rank : int
+            Incidence rank to retrieve.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse incidence matrix.
+        """
+        if rank in incidences:
+            return incidences[rank].coalesce()
+        if rank <= 0:
+            n_cols = practical_shape[0] if practical_shape else 0
+            return zero(1, n_cols)
+        if rank > max_rank:
+            n_rows = (
+                practical_shape[rank - 1]
+                if rank - 1 < len(practical_shape)
+                else 0
+            )
+            return zero(n_rows, 0)
+        return zero(practical_shape[rank - 1], practical_shape[rank])
+
+    def output_incidence(rank):
+        """Return the externally exposed incidence matrix.
+
+        Parameters
+        ----------
+        rank : int
+            Incidence rank to retrieve.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse incidence matrix, signed only when requested.
+        """
+        incidence = raw_incidence(rank)
+        if signed:
+            return incidence
+        return torch.sparse_coo_tensor(
+            incidence.indices(),
+            incidence.values().abs(),
+            incidence.size(),
+            device=incidence.device,
+        ).coalesce()
+
+    for rank_idx in range(max_rank + 1):
+        connectivity[f"incidence_{rank_idx}"] = output_incidence(rank_idx)
+
+    if neighborhoods is None and required_keys is None:
+        warnings.warn(
+            "No neighborhoods specified for selective builder. Returning only incidences to avoid OOM.",
+            stacklevel=2,
+        )
+        neighborhoods = []
+
+    targets = set(neighborhoods or []) | set(required_keys or [])
+    product_cache = {}
+
+    def processed_incidence(rank):
+        """Return an incidence matrix for unsigned products.
+
+        Parameters
+        ----------
+        rank : int
+            Incidence rank to retrieve.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse incidence matrix used for exposed operators.
+        """
+        return output_incidence(rank) if not signed else raw_incidence(rank)
+
+    def grouped_gram(incidence, layout):
+        """Assemble a sparse Gram matrix grouped by simplex membership.
+
+        Parameters
+        ----------
+        incidence : torch.Tensor
+            Sparse incidence matrix.
+        layout : str
+            Product layout, either ``"up"`` or ``"down"``.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse Gram matrix.
+        """
+        incidence = incidence.coalesce()
+        if incidence._nnz() == 0:
+            rows, cols = incidence.size()
+            return zero(rows, rows) if layout == "up" else zero(cols, cols)
+
+        indices = incidence.indices()
+        values = incidence.values()
+        group_indices = indices[1] if layout == "up" else indices[0]
+        item_indices = indices[0] if layout == "up" else indices[1]
+        output_size = (
+            incidence.size(0) if layout == "up" else incidence.size(1)
+        )
+
+        order = torch.argsort(group_indices)
+        group_indices = group_indices[order]
+        item_indices = item_indices[order]
+        values = values[order]
+
+        unique_groups, counts = torch.unique_consecutive(
+            group_indices, return_counts=True
+        )
+        del unique_groups
+
+        row_chunks = []
+        col_chunks = []
+        val_chunks = []
+        start = 0
+        for count in counts.tolist():
+            end = start + count
+            items = item_indices[start:end]
+            group_values = values[start:end]
+            row_chunks.append(items.repeat_interleave(count))
+            col_chunks.append(items.repeat(count))
+            val_chunks.append(
+                group_values.repeat_interleave(count)
+                * group_values.repeat(count)
+            )
+            start = end
+
+        rows = torch.cat(row_chunks)
+        cols = torch.cat(col_chunks)
+        vals = torch.cat(val_chunks)
+        return torch.sparse_coo_tensor(
+            torch.stack([rows, cols]),
+            vals,
+            size=(output_size, output_size),
+            device=incidence.device,
+        ).coalesce()
+
+    def product(kind, rank, use_signed=False):
+        """Return a cached one-step up or down product.
+
+        Parameters
+        ----------
+        kind : str
+            Product kind, either ``"up"`` or ``"down"``.
+        rank : int
+            Cell rank for the product.
+        use_signed : bool, optional
+            Whether to use signed incidences.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse up or down product.
+        """
+        cache_key = (kind, rank, use_signed)
+        if cache_key in product_cache:
+            return product_cache[cache_key]
+
+        n_rank = practical_shape[rank]
+        if kind == "up":
+            incidence = (
+                raw_incidence(rank + 1)
+                if use_signed
+                else processed_incidence(rank + 1)
+            )
+            result = (
+                grouped_gram(incidence, layout="up")
+                if incidence.size(1) != 0
+                else zero(n_rank, n_rank)
+            )
+        elif kind == "down":
+            incidence = (
+                raw_incidence(rank)
+                if use_signed
+                else processed_incidence(rank)
+            )
+            result = (
+                grouped_gram(incidence, layout="down")
+                if rank >= 1 and incidence.size(0) != 0
+                else zero(n_rank, n_rank)
+            )
+        else:
+            raise ValueError(f"Invalid product kind: {kind}")
+
+        product_cache[cache_key] = result
+        return result
+
+    def hodge_laplacian(rank):
+        """Return the Hodge Laplacian for a rank.
+
+        Parameters
+        ----------
+        rank : int
+            Cell rank for the Hodge Laplacian.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse Hodge Laplacian.
+        """
+        hodge = (
+            product("down", rank, use_signed=True)
+            + product("up", rank, use_signed=True)
+        ).coalesce()
+        return hodge if signed else abs_sparse(hodge)
+
+    def off_diagonal(matrix):
+        """Return the off-diagonal entries of a sparse matrix.
+
+        Parameters
+        ----------
+        matrix : torch.Tensor
+            Sparse matrix to filter.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse matrix without diagonal entries.
+        """
+        matrix = matrix.coalesce()
+        idx = matrix.indices()
+        vals = matrix.values()
+        mask = idx[0] != idx[1]
+        if not signed:
+            vals = vals.abs()
+        return torch.sparse_coo_tensor(
+            idx[:, mask], vals[mask], matrix.size(), device=matrix.device
+        ).coalesce()
+
+    def incidence_chain(src_rank, hop, direction):
+        """Multiply consecutive incidence matrices along one direction.
+
+        Parameters
+        ----------
+        src_rank : int
+            Source rank for the requested neighborhood.
+        hop : int
+            Hop distance.
+        direction : str
+            Direction, either ``"up"`` or ``"down"``.
+
+        Returns
+        -------
+        torch.Tensor
+            Sparse multi-hop incidence product.
+        """
+        if direction == "up":
+            matrix = output_incidence(src_rank + 1)
+            for idx in range(src_rank + 2, src_rank + hop + 1):
+                matrix = safe_sparse_mm(matrix, output_incidence(idx))
+            return matrix
+
+        matrix = output_incidence(src_rank - hop + 1)
+        for idx in range(src_rank - hop + 2, src_rank + 1):
+            matrix = safe_sparse_mm(matrix, output_incidence(idx))
+        return matrix
+
+    def binarized(matrix):
+        """Return a sparse matrix with all non-zero values set to one.
+
+        Parameters
+        ----------
+        matrix : torch.Tensor
+            Sparse matrix to binarize.
+
+        Returns
+        -------
+        torch.Tensor
+            Binarized sparse matrix.
+        """
+        matrix = matrix.coalesce()
+        if matrix._nnz() == 0:
+            return matrix
+        return torch.sparse_coo_tensor(
+            matrix.indices(),
+            torch.ones_like(matrix.values()),
+            matrix.size(),
+            device=matrix.device,
+        ).coalesce()
+
+    for target in targets:
+        neighborhood_type, rank, hop = _parse_neighborhood_target(target)
+
+        if neighborhood_type == "incidence":
+            value = output_incidence(rank)
+        elif neighborhood_type == "up_laplacian" and hop == 1:
+            value = product("up", rank)
+        elif neighborhood_type == "down_laplacian" and hop == 1:
+            value = product("down", rank)
+        elif neighborhood_type == "hodge_laplacian" and hop == 1:
+            value = hodge_laplacian(rank)
+        elif neighborhood_type == "up_adjacency" and hop == 1:
+            value = off_diagonal(product("up", rank))
+        elif neighborhood_type == "down_adjacency" and hop == 1:
+            value = off_diagonal(product("down", rank))
+        elif neighborhood_type in {"up_incidence", "down_incidence"}:
+            direction = neighborhood_type.split("_", 1)[0]
+            value = incidence_chain(rank, hop, direction)
+            value = (
+                binarized(value).T if direction == "up" else binarized(value)
+            )
+        elif neighborhood_type in {
+            "up_laplacian",
+            "down_laplacian",
+            "up_adjacency",
+            "down_adjacency",
+        }:
+            direction, operator_type = neighborhood_type.split("_", 1)
+            matrix = incidence_chain(rank, hop, direction)
+            matrix = (
+                safe_sparse_mm(matrix, matrix.T)
+                if direction == "up"
+                else safe_sparse_mm(matrix.T, matrix)
+            )
+            matrix = binarized(matrix)
+            value = (
+                remove_diag_sparse(matrix)
+                if operator_type == "adjacency"
+                else matrix
+            )
+        else:
+            raise ValueError(f"Unsupported neighborhood: {target}")
+
+        _store_with_aliases(
+            connectivity,
+            target,
+            value,
+            neighborhood_type=neighborhood_type,
+            rank=rank,
+            hop=hop,
+        )
+
     return connectivity
 
 
@@ -512,6 +1039,15 @@ def select_neighborhoods_of_interest(connectivity, neighborhoods):
     for key in connectivity:
         if "incidence" in key and "-" not in key:
             useful_connectivity[key] = connectivity[key]
+    for key, value in list(useful_connectivity.items()):
+        if "incidence" in key and "-" not in key:
+            continue
+        try:
+            neighborhood_type, rank, hop = _parse_neighborhood_target(key)
+        except (IndexError, ValueError):
+            continue
+        for alias in _connectivity_aliases(neighborhood_type, rank, hop):
+            useful_connectivity.setdefault(alias, value)
     return useful_connectivity
 
 

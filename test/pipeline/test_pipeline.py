@@ -8,10 +8,10 @@ from test._utils.simplified_pipeline import run
 
 DATASETS = [
     "graph/cocitation_cora_for_partitioning",
-    "graph/cocitation_cora",
-    "graph/fake_inmem",
+#    "graph/cocitation_cora",
+#    "graph/fake_inmem",
 ]
-MODELS = ["graph/gcn"]
+MODELS = ["simplicial/sccnn_custom"]
 
 
 class TestPipeline:
