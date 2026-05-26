@@ -15,7 +15,7 @@ from lightning.pytorch.loggers import Logger
 from lightning.pytorch.loggers.wandb import WandbLogger
 from omegaconf import DictConfig, OmegaConf
 
-from topobench.data.preprocessor import PreProcessor
+from topobench.data.preprocessor import OnDiskPreProcessor, PreProcessor
 from topobench.dataloader import TBDataloader
 from topobench.utils import (
     RankedLogger,
@@ -193,7 +193,11 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             val_cache_fingerprint=val_cache_fingerprint,
         )
     else:
-        preprocessor = PreProcessor(dataset, dataset_dir, transform_config)
+        # TB standard in-memory pipeline and on-disk inductive pipeline
+        preprocessor_cls = (
+            OnDiskPreProcessor if memory_type == "on_disk" else PreProcessor
+        )
+        preprocessor = preprocessor_cls(dataset, dataset_dir, transform_config)
         dataset_train, dataset_val, dataset_test = (
             preprocessor.load_dataset_splits(cfg.dataset.split_params)
         )

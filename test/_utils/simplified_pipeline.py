@@ -3,11 +3,12 @@
 from omegaconf import OmegaConf
 import hydra
 from lightning import Callback, Trainer
-from lightning.pytorch.loggers import Logger
+from lightning.pytorch.loggers import CSVLogger, Logger
 from omegaconf import DictConfig, OmegaConf
 
-from topobench.data.preprocessor import PreProcessor
-from topobench.dataloader import TBDataloader
+from topobench.data.preprocessor import OnDiskPreProcessor, PreProcessor
+from topobench.data.utils import build_cluster_transform, make_hash
+from topobench.dataloader import ClusterGCNDataModule, TBDataloader
 from topobench.utils import instantiate_callbacks
 from topobench.utils.config_resolvers import (
     get_default_metrics,
@@ -59,22 +60,65 @@ def run(cfg: DictConfig) -> DictConfig:
     # Instantiate and load dataset
     dataset_loader = hydra.utils.instantiate(cfg.dataset.loader)
     dataset, dataset_dir = dataset_loader.load()
+
     # Preprocess dataset and load the splits
     transform_config = cfg.get("transforms", None)
-    preprocessor = PreProcessor(dataset, dataset_dir, transform_config)
-    dataset_train, dataset_val, dataset_test = (
-        preprocessor.load_dataset_splits(cfg.dataset.split_params)
-    )
-    # Prepare datamodule
-    if cfg.dataset.parameters.task_level in ["node", "graph"]:
-        datamodule = TBDataloader(
-            dataset_train=dataset_train,
-            dataset_val=dataset_val,
-            dataset_test=dataset_test,
-            **cfg.dataset.get("dataloader_params", {}),
+
+    memory_type = cfg.dataset.loader.parameters.get("memory_type", "in_memory")
+    learning_setting = cfg.dataset.get("split_params", {}).get("learning_setting", "inductive")
+
+    if memory_type == "on_disk_cluster":
+        # Loads a graph in memory, performs partitioning
+        preprocessor = PreProcessor(dataset, dataset_dir, None)
+        post_batch_transform = build_cluster_transform(transform_config)
+
+        handle = preprocessor.pack_global_partition(
+            split_params=cfg.dataset.get("split_params", {}),
+            cluster_params=cfg.dataset.loader.parameters.get("cluster", {}),
+            stream_params=cfg.dataset.loader.parameters.get("stream", {}),
+            dtype_policy=cfg.dataset.loader.parameters.get("dtype_policy", "preserve"),
+            pack_db=True,
+            pack_memmaps=True
+        )
+
+        transform_cfg_container = OmegaConf.to_container(transform_config, resolve=True) if transform_config is not None else None
+        val_cache_fingerprint = make_hash({
+            "transform": transform_cfg_container,
+            "q_val": cfg.dataset.loader.parameters.get("stream", {}).get("q_val", None),
+            "with_edge_attr": cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
+        })
+
+        # Build streaming loaders
+        datamodule = ClusterGCNDataModule(
+            data_handle=handle,
+            q=cfg.dataset.loader.parameters.get("stream", {}).get("q", 1),
+            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get("num_workers", 0),
+            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get("pin_memory", False),
+            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
+            eval_cover_strategy=cfg.get("eval", {}).get("cover_strategy", "all_parts"),
+            seed=cfg.get("seed", 42),
+            post_batch_transform=post_batch_transform,
+            cache_val=True,
+            val_cache_fingerprint=val_cache_fingerprint,
         )
     else:
-        raise ValueError("Invalid task_level")
+        # TB standard in-memory pipeline and on-disk inductive pipeline
+        preprocessor_cls = OnDiskPreProcessor if memory_type == "on_disk" else PreProcessor
+        preprocessor = preprocessor_cls(dataset, dataset_dir, transform_config)
+
+        dataset_train, dataset_val, dataset_test = (
+            preprocessor.load_dataset_splits(cfg.dataset.split_params)
+        )
+        # Prepare datamodule
+        if cfg.dataset.parameters.task_level in ["node", "graph"]:
+            datamodule = TBDataloader(
+                dataset_train=dataset_train,
+                dataset_val=dataset_val,
+                dataset_test=dataset_test,
+                **cfg.dataset.get("dataloader_params", {}),
+            )
+        else:
+            raise ValueError("Invalid task_level")
 
     # Model for us is Network + logic: inputs backbone, readout, losses
     model = hydra.utils.instantiate(
@@ -84,10 +128,14 @@ def run(cfg: DictConfig) -> DictConfig:
         loss=cfg.loss,
     )
     callbacks = instantiate_callbacks(cfg.get("callbacks"))
+    dataset_id = cfg.dataset.loader.parameters.get("data_name")
+    model_id = cfg.model.model_name
+    version = f"d={dataset_id}_m={model_id}"
+    logger = CSVLogger(save_dir="logs", name="topobench", version=version)
     trainer = hydra.utils.instantiate(
         cfg.trainer,
         callbacks=callbacks,
-        logger=False,
+        logger=logger,
         num_sanity_val_steps=0,
     )
     trainer.fit(
