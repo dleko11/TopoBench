@@ -123,9 +123,10 @@ class _CachedBatchDataset(Dataset):
         Data
             The loaded PyG Data object.
         """
-        return torch.load(
+        data = torch.load(
             self.files[idx], map_location="cpu", weights_only=False
         )
+        return _ensure_cluster_batch_metadata(data)
 
 
 def _identity_data_collate(batch_list: list[Data]) -> Data:
@@ -142,6 +143,57 @@ def _identity_data_collate(batch_list: list[Data]) -> Data:
         The first Data object in the list.
     """
     return batch_list[0]
+
+
+def _ensure_cluster_batch_metadata(data: Data) -> Data:
+    """Ensure cluster batches expose standard lifted batch metadata.
+
+    Parameters
+    ----------
+    data : Data
+        Cluster batch data object.
+
+    Returns
+    -------
+    Data
+        Data object with ``batch_*`` and ``cell_statistics`` fields.
+    """
+    if data.get("x") is not None and data.get("x_0") is None:
+        data.x_0 = data.x
+
+    if data.get("batch_0") is None:
+        if data.get("batch") is not None:
+            data.batch_0 = data.batch
+        else:
+            data.batch_0 = torch.zeros(data.num_nodes, dtype=torch.long)
+
+    shape = data.get("shape")
+    if shape is not None and data.get("cell_statistics") is None:
+        cell_statistics = torch.as_tensor(shape, dtype=torch.long)
+        if cell_statistics.dim() == 1:
+            cell_statistics = cell_statistics.unsqueeze(0)
+        data.cell_statistics = cell_statistics
+
+    for key in list(data.keys()):
+        if key.startswith("x_") and key not in ("x", "x_0"):
+            if key == "x_hyperedges":
+                cell_dim = "hyperedges"
+            else:
+                try:
+                    cell_dim = int(key.split("_")[1])
+                except Exception:
+                    continue
+
+            batch_key = f"batch_{cell_dim}"
+            if data.get(batch_key) is None:
+                num_cells = getattr(data, key).shape[0]
+                setattr(
+                    data,
+                    batch_key,
+                    torch.zeros(num_cells, dtype=torch.long),
+                )
+
+    return data
 
 
 # Collator: stream CSR blocks + masks
@@ -376,38 +428,7 @@ class BlockCSRBatchCollator:
         elif self.active_split == "test":
             data.test_mask = supervised_mask
 
-        if x is not None:
-            data.x_0 = data.x
-            data.batch_0 = torch.zeros(data.num_nodes, dtype=torch.long)
-
-        # Reproduce collate_fn behavior for batch_k and cell_statistics
-        if hasattr(data, "batch_0"):
-            pass  # respect whatever the transform set
-        elif hasattr(data, "batch"):
-            data.batch_0 = data.batch
-        else:
-            data.batch_0 = torch.zeros(data.num_nodes, dtype=torch.long)
-
-        # For every x_k (k >= 1) or x_hyperedges, create corresponding batch_k
-        # if it doesn't already exist.
-        for key in list(data.keys()):
-            if key.startswith("x_") and key not in ("x", "x_0"):
-                if key == "x_hyperedges":
-                    cell_dim = "hyperedges"
-                else:
-                    try:
-                        cell_dim = int(key.split("_")[1])
-                    except Exception:
-                        continue
-
-                batch_key = f"batch_{cell_dim}"
-                if not hasattr(data, batch_key):
-                    num_cells = getattr(data, key).shape[0]
-                    setattr(
-                        data,
-                        batch_key,
-                        torch.zeros(num_cells, dtype=torch.long),
-                    )
+        data = _ensure_cluster_batch_metadata(data)
 
         if self.device is not None:
             data = data.to(self.device)
