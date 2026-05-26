@@ -11,7 +11,7 @@ DATASETS = [
 #    "graph/cocitation_cora",
 #    "graph/fake_inmem",
 ]
-MODELS = ["simplicial/sccnn_custom"]
+MODELS = ["simplicial/topotune"]
 
 
 class TestPipeline:
