@@ -27,6 +27,7 @@ python -m topobench \
     dataset.dataloader_params.batch_size=1 \
     dataset.loader.parameters.stream.num_workers=$NUM_WORKERS \
     dataset.dataloader_params.num_workers=$NUM_WORKERS \
+    +dataset.loader.parameters.stream.cache_num_workers=$NUM_WORKERS \
     dataset.split_params.data_seed=100,200,300,400 \
     trainer.max_epochs=1500 \
     trainer.min_epochs=50 \

@@ -15,7 +15,7 @@ export MKL_NUM_THREADS=$num_threads
 
 python -m topobench \
     --multirun \
-    model=cell/cwn,cell/cccn,simplicial/scn,simplicial/sccnn_custom \
+    model=cell/cccn \
     dataset=graph/tolokers \
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
@@ -25,8 +25,8 @@ python -m topobench \
     dataset.split_params.data_seed=0,100,200,300,400 \
     trainer.max_epochs=1500 \
     trainer.min_epochs=50 \
-    trainer.check_val_every_n_epoch=1 \
-    callbacks.early_stopping.patience=30 \
+    trainer.check_val_every_n_epoch=5 \
+    callbacks.early_stopping.patience=5 \
     logger=wandb \
     logger.wandb.project=tolokers \
     trainer=gpu \

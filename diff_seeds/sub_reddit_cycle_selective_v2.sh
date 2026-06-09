@@ -18,7 +18,7 @@ NUM_WORKERS=8
 
 python -m topobench \
     --multirun \
-    model=cell/cwn,cell/cccn \
+    model=cell/cccn \
     dataset=graph/reddit_for_partitioning \
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
@@ -26,11 +26,12 @@ python -m topobench \
     model.feature_encoder.proj_dropout=0 \
     dataset.loader.parameters.stream.num_workers=$NUM_WORKERS \
     dataset.dataloader_params.num_workers=$NUM_WORKERS \
-    dataset.split_params.data_seed=100,200,300,400 \
+    +dataset.loader.parameters.stream.cache_num_workers=$NUM_WORKERS \
+    dataset.split_params.data_seed=200,300,400 \
     trainer.max_epochs=300 \
     trainer.min_epochs=50 \
     trainer.check_val_every_n_epoch=5 \
-    callbacks.early_stopping.patience=5 \
+    callbacks.early_stopping.patience=2 \
     logger=wandb \
     logger.wandb.project=reddit \
     trainer=gpu \
