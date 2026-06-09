@@ -1,6 +1,7 @@
 """Init file for graph load module with automated loader discovery."""
 
 import inspect
+import warnings
 from importlib import util
 from pathlib import Path
 from typing import Any, ClassVar
@@ -63,7 +64,14 @@ class GraphLoaderManager:
             spec = util.spec_from_file_location(module_name, file_path)
             if spec and spec.loader:
                 module = util.module_from_spec(spec)
-                spec.loader.exec_module(module)
+                try:
+                    spec.loader.exec_module(module)
+                except ImportError as exc:
+                    warnings.warn(
+                        f"Skipping graph loader module {file_path.stem}: {exc}",
+                        stacklevel=2,
+                    )
+                    continue
 
                 # Find all loader classes in the module
                 new_loaders = {
