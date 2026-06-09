@@ -1,7 +1,7 @@
 # Dataset loader config
 loader:
   _target_: topobench.data.loaders.HeterophilousGraphDatasetLoader
-  parameters: 
+  parameters:
     data_domain: graph
     data_type: heterophilic
     data_name: tolokers
@@ -20,8 +20,8 @@ loader:
     # streaming / loader settings for block-wise training
     stream:
       q: 64
-      q_val: 200
-      q_test: 200
+      val_batches: 11
+      test_batches: 11
       num_workers: 0
       pin_memory: false
       with_edge_attr: false               # Coauthor has no edge_attr by default

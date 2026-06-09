@@ -44,20 +44,26 @@ init_experiment_environment() {
 mode_grid_size() {
     local mode="$1"
     if is_partitioning_mode "$mode"; then
-        echo $(( ${#Q_VALUES[@]} * ${#NUM_CLUSTERS[@]} ))
+        echo $(( ${#Q_VALUES[@]} * ${#NUM_CLUSTERS[@]} * ${#VAL_BATCHES_VALUES[@]} * ${#TEST_BATCHES_VALUES[@]} ))
     else
         echo 1
     fi
 }
 
+hparam_grid_size() {
+    echo $(( ${#LR_VALUES[@]} * ${#WEIGHT_DECAY_VALUES[@]} * ${#OUT_CHANNELS_VALUES[@]} * ${#PROJ_DROPOUT_VALUES[@]} ))
+}
+
 count_total_runs() {
     local total=0
     local dataset_mode mode dataset_config mode_multiplier
+    local hparam_multiplier
+    hparam_multiplier=$(hparam_grid_size)
 
     for dataset_mode in "${DATASET_MODES[@]}"; do
         IFS="::" read -r mode _ dataset_config <<< "$dataset_mode"
         mode_multiplier=$(mode_grid_size "$mode")
-        total=$(( total + mode_multiplier * ${#MODEL_SPECS[@]} * ${#DATA_SEEDS[@]} ))
+        total=$(( total + mode_multiplier * hparam_multiplier * ${#MODEL_SPECS[@]} * ${#DATA_SEEDS[@]} ))
     done
 
     echo "$total"
@@ -90,15 +96,18 @@ try:
     if not indices:
         print('0')
         raise SystemExit
-    min_mem_gb = min(mem_mb) / 1024
-    if min_mem_gb >= 80:
-        jobs = 5
-    elif min_mem_gb <= 10:
-        jobs = 1
-    elif min_mem_gb <= 30:
-        jobs = 2
-    else:
-        jobs = 3
+    jobs = 1
+    # Previous VRAM-based oversubscription policy. Keep this disabled for
+    # large partitioning jobs where multiple jobs on one GPU can OOM.
+    # min_mem_gb = min(mem_mb) / 1024
+    # if min_mem_gb >= 80:
+    #     jobs = 5
+    # elif min_mem_gb <= 10:
+    #     jobs = 1
+    # elif min_mem_gb <= 30:
+    #     jobs = 2
+    # else:
+    #     jobs = 3
     print(jobs, ' '.join(indices))
 except Exception:
     fallback = allowed_gpus[0] if allowed_gpus else '0'
@@ -196,105 +205,139 @@ run_dataset_suite() {
     echo "Dry run: $DRY_RUN"
     echo "Partition q values: ${Q_VALUES[*]}"
     echo "Partition num_clusters values: ${NUM_CLUSTERS[*]}"
+    echo "Partition val_batches values: ${VAL_BATCHES_VALUES[*]:-(config default)}"
+    echo "Partition test_batches values: ${TEST_BATCHES_VALUES[*]:-(config default)}"
+    echo "LR values: ${LR_VALUES[*]}"
+    echo "Weight decay values: ${WEIGHT_DECAY_VALUES[*]}"
+    echo "Feature out_channels values: ${OUT_CHANNELS_VALUES[*]}"
+    echo "Projection dropout values: ${PROJ_DROPOUT_VALUES[*]}"
 
     for dataset_mode in "${DATASET_MODES[@]}"; do
         IFS="::" read -r mode _ dataset_config <<< "$dataset_mode"
 
         q_grid=("")
         cluster_grid=("")
+        val_batches_grid=("")
+        test_batches_grid=("")
         if is_partitioning_mode "$mode"; then
             q_grid=("${Q_VALUES[@]}")
             cluster_grid=("${NUM_CLUSTERS[@]}")
+            val_batches_grid=("${VAL_BATCHES_VALUES[@]}")
+            test_batches_grid=("${TEST_BATCHES_VALUES[@]}")
         fi
 
         for q_value in "${q_grid[@]}"; do
             for num_clusters in "${cluster_grid[@]}"; do
-                local partition_suffix=""
-                if is_partitioning_mode "$mode"; then
-                    partition_suffix="_q${q_value}_clusters${num_clusters}"
-                fi
-
-                for model_spec in "${MODEL_SPECS[@]}"; do
-                    IFS="::" read -r model_alias _ model_config _ transform_kind <<< "$model_spec"
-                    local transform_name
-                    transform_name=$(transform_alias "$transform_kind")
-
-                    for data_seed in "${DATA_SEEDS[@]}"; do
-                        local run_name="${mode}_${model_alias}_${transform_name}${partition_suffix}_seed${data_seed}_lr${LR}_wd${WEIGHT_DECAY}_h${OUT_CHANNELS}_pd${PROJ_DROPOUT}"
-
-                        if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
-                            ((skipped++))
-                            continue
-                        fi
-
-                        ((run_counter++))
-                        if (( run_counter % one_percent_step == 0 )); then
-                            local percent=$(( (run_counter * 100) / total_runs ))
-                            echo "Progress: ${percent}% ($run_counter / $total_runs considered)"
-                        fi
-
-                        assigned_slot=-1
-                        while [[ "$assigned_slot" -eq -1 ]]; do
-                            for i in "${!gpus[@]}"; do
-                                local pid="${slot_pids[$i]}"
-                                if [[ "$pid" -eq 0 ]] || ! kill -0 "$pid" 2>/dev/null; then
-                                    assigned_slot=$i
-                                    break
-                                fi
-                            done
-                            if [[ "$assigned_slot" -eq -1 ]]; then
-                                wait -n
-                            fi
-                        done
-
-                        current_gpu="${gpus[$assigned_slot]}"
-                        local project_name="${script_name}_${mode}"
-
-                        cmd=(
-                            "python" "-m" "topobench"
-                            "model=${model_config}"
-                            "dataset=${dataset_config}"
-                            "optimizer.parameters.lr=${LR}"
-                            "optimizer.parameters.weight_decay=${WEIGHT_DECAY}"
-                            "model.feature_encoder.out_channels=${OUT_CHANNELS}"
-                            "model.feature_encoder.proj_dropout=${PROJ_DROPOUT}"
-                            "dataset.dataloader_params.batch_size=1"
-                            "dataset.split_params.data_seed=${data_seed}"
-                            "trainer.max_epochs=${MAX_EPOCHS}"
-                            "trainer.min_epochs=${MIN_EPOCHS}"
-                            "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
-                            "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
-                            "logger=wandb"
-                            "logger.wandb.project=${project_name}"
-                            "+logger.wandb.name=${run_name}"
-                            "trainer=gpu"
-                            "trainer.devices=[${current_gpu}]"
-                            "+trainer.enable_progress_bar=false"
-                        )
-
-                        if [[ -n "${wandb_entity:-}" ]]; then
-                            cmd+=("+logger.wandb.entity=${wandb_entity}")
-                        fi
-
-                        append_transform_args "$transform_kind"
-
+                for val_batches in "${val_batches_grid[@]}"; do
+                    for test_batches in "${test_batches_grid[@]}"; do
+                        local partition_suffix=""
                         if is_partitioning_mode "$mode"; then
-                            cmd+=(
-                                "dataset.loader.parameters.stream.q=${q_value}"
-                                "dataset.loader.parameters.cluster.num_parts=${num_clusters}"
-                                "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
-                                "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
-                            )
+                            partition_suffix="_q${q_value}_clusters${num_clusters}"
+                            if [[ -n "$val_batches" ]]; then
+                                partition_suffix+="_valb${val_batches}"
+                            fi
+                            if [[ -n "$test_batches" ]]; then
+                                partition_suffix+="_testb${test_batches}"
+                            fi
                         fi
 
-                        if [[ "$DRY_RUN" == "true" ]]; then
-                            printf '[DRY_RUN] %s\n' "${cmd[*]}"
-                            slot_pids[$assigned_slot]=0
-                        else
-                            run_and_log "${cmd[*]}" "$log_group" "$run_name" "$LOG_DIR" &
-                            slot_pids[$assigned_slot]=$!
-                            ((launched++))
-                        fi
+                        for model_spec in "${MODEL_SPECS[@]}"; do
+                            IFS="::" read -r model_alias _ model_config _ transform_kind <<< "$model_spec"
+                            local transform_name
+                            transform_name=$(transform_alias "$transform_kind")
+
+                            for lr in "${LR_VALUES[@]}"; do
+                                for weight_decay in "${WEIGHT_DECAY_VALUES[@]}"; do
+                                    for out_channels in "${OUT_CHANNELS_VALUES[@]}"; do
+                                        for proj_dropout in "${PROJ_DROPOUT_VALUES[@]}"; do
+                                            for data_seed in "${DATA_SEEDS[@]}"; do
+                                                local run_name="${mode}_${model_alias}_${transform_name}${partition_suffix}_seed${data_seed}_lr${lr}_wd${weight_decay}_h${out_channels}_pd${proj_dropout}"
+
+                                                if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
+                                                    ((skipped++))
+                                                    continue
+                                                fi
+
+                                                ((run_counter++))
+                                                if (( run_counter % one_percent_step == 0 )); then
+                                                    local percent=$(( (run_counter * 100) / total_runs ))
+                                                    echo "Progress: ${percent}% ($run_counter / $total_runs considered)"
+                                                fi
+
+                                                assigned_slot=-1
+                                                while [[ "$assigned_slot" -eq -1 ]]; do
+                                                    for i in "${!gpus[@]}"; do
+                                                        local pid="${slot_pids[$i]}"
+                                                        if [[ "$pid" -eq 0 ]] || ! kill -0 "$pid" 2>/dev/null; then
+                                                            assigned_slot=$i
+                                                            break
+                                                        fi
+                                                    done
+                                                    if [[ "$assigned_slot" -eq -1 ]]; then
+                                                        wait -n
+                                                    fi
+                                                done
+
+                                                current_gpu="${gpus[$assigned_slot]}"
+                                                local project_name="${script_name}_${mode}"
+
+                                                cmd=(
+                                                    "python" "-m" "topobench"
+                                                    "model=${model_config}"
+                                                    "dataset=${dataset_config}"
+                                                    "optimizer.parameters.lr=${lr}"
+                                                    "optimizer.parameters.weight_decay=${weight_decay}"
+                                                    "model.feature_encoder.out_channels=${out_channels}"
+                                                    "model.feature_encoder.proj_dropout=${proj_dropout}"
+                                                    "dataset.dataloader_params.batch_size=1"
+                                                    "dataset.split_params.data_seed=${data_seed}"
+                                                    "trainer.max_epochs=${MAX_EPOCHS}"
+                                                    "trainer.min_epochs=${MIN_EPOCHS}"
+                                                    "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
+                                                    "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
+                                                    "logger=wandb"
+                                                    "logger.wandb.project=${project_name}"
+                                                    "+logger.wandb.name=${run_name}"
+                                                    "trainer=gpu"
+                                                    "trainer.devices=[${current_gpu}]"
+                                                    "+trainer.enable_progress_bar=false"
+                                                )
+
+                                                if [[ -n "${wandb_entity:-}" ]]; then
+                                                    cmd+=("+logger.wandb.entity=${wandb_entity}")
+                                                fi
+
+                                                append_transform_args "$transform_kind"
+
+                                                if is_partitioning_mode "$mode"; then
+                                                    cmd+=(
+                                                        "dataset.loader.parameters.stream.q=${q_value}"
+                                                        "dataset.loader.parameters.cluster.num_parts=${num_clusters}"
+                                                        "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
+                                                        "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
+                                                    )
+                                                    if [[ -n "$val_batches" ]]; then
+                                                        cmd+=("dataset.loader.parameters.stream.val_batches=${val_batches}")
+                                                    fi
+                                                    if [[ -n "$test_batches" ]]; then
+                                                        cmd+=("dataset.loader.parameters.stream.test_batches=${test_batches}")
+                                                    fi
+                                                fi
+
+                                                if [[ "$DRY_RUN" == "true" ]]; then
+                                                    printf '[DRY_RUN] %s\n' "${cmd[*]}"
+                                                    slot_pids[$assigned_slot]=0
+                                                else
+                                                    run_and_log "${cmd[*]}" "$log_group" "$run_name" "$LOG_DIR" &
+                                                    slot_pids[$assigned_slot]=$!
+                                                    ((launched++))
+                                                fi
+                                            done
+                                        done
+                                    done
+                                done
+                            done
+                        done
                     done
                 done
             done

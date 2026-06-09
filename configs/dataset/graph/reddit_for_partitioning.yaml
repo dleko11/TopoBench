@@ -1,12 +1,12 @@
 # Dataset loader config
 loader:
   _target_: topobench.data.loaders.RedditDatasetLoader
-  parameters: 
+  parameters:
     data_domain: graph
     data_type: Reddit_on_disk
     data_name: Reddit
     data_dir: ${paths.data_dir}/${dataset.loader.parameters.data_domain}/${dataset.loader.parameters.data_type}
-    
+
     # NEW: choose memory mode
     memory_type: on_disk_cluster          # "in_memory", "on_disk", or "on_disk_cluster"
 
@@ -20,8 +20,6 @@ loader:
     # NEW: streaming / loader settings for block-wise training
     stream:
       q: 20                               # clusters per batch (Cluster-GCN "bsize")
-      #q_test: 100
-      #q_val: 100
       val_batches: 25
       test_batches: 25
       num_workers: 0                      # increase if needed
