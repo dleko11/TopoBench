@@ -14,3 +14,7 @@ wandb:
   group: ""
   tags: []
   job_type: ""
+  settings:
+    _target_: wandb.Settings
+    x_stats_sampling_interval: 5.0
+    x_stats_track_process_tree: true

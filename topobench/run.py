@@ -18,15 +18,18 @@ from omegaconf import DictConfig, OmegaConf
 from topobench.data.preprocessor import OnDiskPreProcessor, PreProcessor
 from topobench.dataloader import TBDataloader
 from topobench.utils import (
+    PhaseResourceTracker,
     RankedLogger,
     extras,
     get_metric_value,
     instantiate_callbacks,
     instantiate_loggers,
     log_hyperparameters,
+    set_current_phase_tracker,
     task_wrapper,
 )
 from topobench.utils.config_resolvers import register_all_resolvers
+from topobench.utils.phase_tracking import track_phase
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -108,12 +111,17 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             "Enabled cudnn.deterministic and torch.use_deterministic_algorithms"
         )
 
-    # Instantiate and load dataset
-    log.info(f"Instantiating loader <{cfg.dataset.loader._target_}>")
-    dataset_loader = hydra.utils.instantiate(cfg.dataset.loader)
-    dataset, dataset_dir = dataset_loader.load()
-    # Preprocess dataset and load the splits
-    log.info("Instantiating preprocessor...")
+    log.info("Instantiating loggers...")
+    logger: list[Logger] = instantiate_loggers(cfg.get("logger"))
+    phase_tracker = PhaseResourceTracker(logger)
+    phase_tracker.initialize()
+    set_current_phase_tracker(phase_tracker)
+
+    with phase_tracker.track("dataset_load"):
+        log.info(f"Instantiating loader <{cfg.dataset.loader._target_}>")
+        dataset_loader = hydra.utils.instantiate(cfg.dataset.loader)
+        dataset, dataset_dir = dataset_loader.load()
+
     raw_transform_config = cfg.get("transforms", None)
 
     memory_type = cfg.dataset.loader.parameters.get("memory_type", "in_memory")
@@ -123,133 +131,130 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         from topobench.data.utils import build_cluster_transform, make_hash
         from topobench.dataloader import ClusterGCNDataModule
 
-        preprocessor = PreProcessor(dataset, dataset_dir, None)
-        build_cluster_transform(raw_transform_config)
+        with phase_tracker.track("full_graph_preprocessing"):
+            log.info("Instantiating preprocessor...")
+            preprocessor = PreProcessor(dataset, dataset_dir, None)
+            build_cluster_transform(raw_transform_config)
 
-        handle = preprocessor.pack_global_partition(
-            split_params=cfg.dataset.get("split_params", {}),
-            cluster_params=cfg.dataset.loader.parameters.get("cluster", {}),
-            stream_params=cfg.dataset.loader.parameters.get("stream", {}),
-            dtype_policy=cfg.dataset.loader.parameters.get(
-                "dtype_policy", "preserve"
-            ),
-            pack_db=True,
-            pack_memmaps=True,
-        )
-
-        transform_cfg_container = (
-            OmegaConf.to_container(raw_transform_config, resolve=True)
-            if raw_transform_config is not None
-            else None
-        )
-        val_cache_fingerprint = make_hash(
-            {
-                "partition_hash": handle.get("config_hash", None),
-                "transform": transform_cfg_container,
-                "q_val": cfg.dataset.loader.parameters.get("stream", {}).get(
-                    "q_val", None
+        with phase_tracker.track("partition_build"):
+            handle = preprocessor.pack_global_partition(
+                split_params=cfg.dataset.get("split_params", {}),
+                cluster_params=cfg.dataset.loader.parameters.get(
+                    "cluster", {}
                 ),
-                "with_edge_attr": cfg.dataset.loader.parameters.get(
-                    "stream", {}
-                ).get("with_edge_attr", False),
-            }
-        )
-
-        # Build streaming loaders
-        datamodule = ClusterGCNDataModule(
-            data_handle=handle,
-            q=cfg.dataset.loader.parameters.get("stream", {}).get("q", 1),
-            q_test=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "q_test", None
-            ),
-            q_val=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "q_val", None
-            ),
-            val_batches=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "val_batches", 5
-            ),
-            test_batches=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "test_batches", None
-            ),
-            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "num_workers", 0
-            ),
-            cache_num_workers=cfg.dataset.loader.parameters.get(
-                "stream", {}
-            ).get("cache_num_workers", None),
-            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "pin_memory", False
-            ),
-            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get(
-                "with_edge_attr", False
-            ),
-            eval_cover_strategy=cfg.get("eval", {}).get(
-                "cover_strategy", "all_parts"
-            ),
-            seed=cfg.get("seed", 42),
-            transform_config=transform_cfg_container,
-            cache_val=True,
-            val_cache_fingerprint=val_cache_fingerprint,
-        )
-    else:
-        transform_config = (
-            hydra.utils.instantiate(raw_transform_config)
-            if raw_transform_config is not None
-            else None
-        )
-        # TB standard in-memory pipeline and on-disk inductive pipeline
-        preprocessor_cls = (
-            OnDiskPreProcessor if memory_type == "on_disk" else PreProcessor
-        )
-        preprocessor = preprocessor_cls(dataset, dataset_dir, transform_config)
-        dataset_train, dataset_val, dataset_test = (
-            preprocessor.load_dataset_splits(cfg.dataset.split_params)
-        )
-        # Prepare datamodule
-        log.info("Instantiating datamodule...")
-        if cfg.dataset.parameters.task_level in ["node", "graph"]:
-            datamodule = TBDataloader(
-                dataset_train=dataset_train,
-                dataset_val=dataset_val,
-                dataset_test=dataset_test,
-                **cfg.dataset.get("dataloader_params", {}),
+                stream_params=cfg.dataset.loader.parameters.get("stream", {}),
+                dtype_policy=cfg.dataset.loader.parameters.get(
+                    "dtype_policy", "preserve"
+                ),
+                pack_db=True,
+                pack_memmaps=True,
             )
-        else:
-            raise ValueError("Invalid task_level")
+
+        with phase_tracker.track("datamodule_init"):
+            transform_cfg_container = (
+                OmegaConf.to_container(raw_transform_config, resolve=True)
+                if raw_transform_config is not None
+                else None
+            )
+            stream_cfg = cfg.dataset.loader.parameters.get("stream", {})
+            val_cache_fingerprint = make_hash(
+                {
+                    "partition_hash": handle.get("config_hash", None),
+                    "transform": transform_cfg_container,
+                    "q_val": stream_cfg.get("q_val", None),
+                    "with_edge_attr": stream_cfg.get("with_edge_attr", False),
+                }
+            )
+
+            # Build streaming loaders
+            datamodule = ClusterGCNDataModule(
+                data_handle=handle,
+                q=stream_cfg.get("q", 1),
+                q_test=stream_cfg.get("q_test", None),
+                q_val=stream_cfg.get("q_val", None),
+                val_batches=stream_cfg.get("val_batches", 5),
+                test_batches=stream_cfg.get("test_batches", None),
+                num_workers=stream_cfg.get("num_workers", 0),
+                cache_num_workers=stream_cfg.get("cache_num_workers", None),
+                pin_memory=stream_cfg.get("pin_memory", False),
+                with_edge_attr=stream_cfg.get("with_edge_attr", False),
+                eval_cover_strategy=cfg.get("eval", {}).get(
+                    "cover_strategy", "all_parts"
+                ),
+                seed=cfg.get("seed", 42),
+                transform_config=transform_cfg_container,
+                cache_val=True,
+                val_cache_fingerprint=val_cache_fingerprint,
+            )
+    else:
+        with phase_tracker.track("full_graph_preprocessing"):
+            log.info("Instantiating preprocessor...")
+            transform_config = (
+                hydra.utils.instantiate(raw_transform_config)
+                if raw_transform_config is not None
+                else None
+            )
+            # TB standard in-memory pipeline and on-disk inductive pipeline
+            preprocessor_cls = (
+                OnDiskPreProcessor
+                if memory_type == "on_disk"
+                else PreProcessor
+            )
+            preprocessor = preprocessor_cls(
+                dataset,
+                dataset_dir,
+                transform_config,
+            )
+            dataset_train, dataset_val, dataset_test = (
+                preprocessor.load_dataset_splits(cfg.dataset.split_params)
+            )
+
+        with phase_tracker.track("datamodule_init"):
+            log.info("Instantiating datamodule...")
+            if cfg.dataset.parameters.task_level in ["node", "graph"]:
+                datamodule = TBDataloader(
+                    dataset_train=dataset_train,
+                    dataset_val=dataset_val,
+                    dataset_test=dataset_test,
+                    **cfg.dataset.get("dataloader_params", {}),
+                )
+            else:
+                raise ValueError("Invalid task_level")
 
     # Model for us is Network + logic: inputs backbone, readout, losses
-    log.info(f"Instantiating model <{cfg.model._target_}>")
-    model: LightningModule = hydra.utils.instantiate(
-        cfg.model,
-        evaluator=cfg.evaluator,
-        optimizer=cfg.optimizer,
-        loss=cfg.loss,
-    )
+    with phase_tracker.track("model_init"):
+        log.info(f"Instantiating model <{cfg.model._target_}>")
+        model: LightningModule = hydra.utils.instantiate(
+            cfg.model,
+            evaluator=cfg.evaluator,
+            optimizer=cfg.optimizer,
+            loss=cfg.loss,
+        )
 
-    log.info("Instantiating callbacks...")
-    callbacks: list[Callback] = instantiate_callbacks(cfg.get("callbacks"))
-
-    log.info("Instantiating loggers...")
-    logger: list[Logger] = instantiate_loggers(cfg.get("logger"))
+    with phase_tracker.track("callbacks_init"):
+        log.info("Instantiating callbacks...")
+        callbacks: list[Callback] = instantiate_callbacks(cfg.get("callbacks"))
 
     # Log to wandb preprocessor time
     if logger:
+        preprocessing_time = getattr(preprocessor, "preprocessing_time", 0.0)
         for log_temp in logger:
             if isinstance(log_temp, L.pytorch.loggers.wandb.WandbLogger):
                 log_temp.log_metrics(
                     {
-                        "preprocessor_time": preprocessor.preprocessing_time,
+                        "preprocessor_time": preprocessing_time,
                     }
                 )
 
-    log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
-    trainer: Trainer = hydra.utils.instantiate(
-        cfg.trainer,
-        callbacks=callbacks,
-        logger=logger,
-        num_sanity_val_steps=0,
-        log_every_n_steps=1,  # Log metrics every step (Lightning requires >=1)
-    )
+    with phase_tracker.track("trainer_init"):
+        log.info(f"Instantiating trainer <{cfg.trainer._target_}>")
+        trainer: Trainer = hydra.utils.instantiate(
+            cfg.trainer,
+            callbacks=callbacks,
+            logger=logger,
+            num_sanity_val_steps=0,
+            log_every_n_steps=1,  # Log metrics every step (Lightning requires >=1)
+        )
 
     object_dict = {
         "cfg": cfg,
@@ -332,18 +337,23 @@ def rerun_best_model_checkpoint(
     logger : list[Logger]
         A list of loggers (e.g., WandbLogger) to record the re-run metrics.
     """
+    model_path: Path | None = None
     for callback in callbacks:
         if isinstance(callback, ModelCheckpoint):
             log.info(
                 f"Loading best model from checkpoint at {callback.best_model_path}"
             )
-            model_path = Path(callback.best_model_path)
-            ckpt = torch.load(
-                model_path, map_location="cpu", weights_only=False
-            )
+            with track_phase("checkpoint_load"):
+                model_path = Path(callback.best_model_path)
+                ckpt = torch.load(
+                    model_path, map_location="cpu", weights_only=False
+                )
 
-            checkpoint_model.load_state_dict(ckpt["state_dict"], strict=True)
-            checkpoint_model.to(device)
+                checkpoint_model.load_state_dict(
+                    ckpt["state_dict"],
+                    strict=True,
+                )
+                checkpoint_model.to(device)
             break  # there is only one checkpoint callback
 
     # New trainer to log final metrics on validation set
@@ -359,9 +369,11 @@ def rerun_best_model_checkpoint(
     val_loader = datamodule.val_dataloader()
     # TODO: Fix the issue with the on_validation_epoch_start hook as it is strictly attached to the training procedure.
     checkpoint_model.on_validation_epoch_start = lambda: None
-    results = checkpoint_trainer.validate(
-        model=checkpoint_model, dataloaders=val_loader
-    )
+    with track_phase("val_best_rerun"):
+        results = checkpoint_trainer.validate(
+            model=checkpoint_model,
+            dataloaders=val_loader,
+        )
     if results:
         logged = {}
         for k, v in results[0].items():
@@ -374,9 +386,11 @@ def rerun_best_model_checkpoint(
 
     log.info("Re-testing best model checkpoint on test set!")
     test_loader = datamodule.test_dataloader()
-    results = checkpoint_trainer.test(
-        model=checkpoint_model, dataloaders=test_loader
-    )
+    with track_phase("test_best_rerun"):
+        results = checkpoint_trainer.test(
+            model=checkpoint_model,
+            dataloaders=test_loader,
+        )
     if results:
         logged = {}
         for k, v in results[0].items():

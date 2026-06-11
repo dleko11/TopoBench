@@ -320,10 +320,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         pack_db: bool = True,
         pack_memmaps: bool = True,
     ) -> dict[str, Any]:
-        """
-        Build a global Cluster-GCN partition for a transductive
-        single-graph dataset, persist the resulting artifacts to disk, and
-        return a compact handle for block-streaming loaders.
+        """Build and persist a global Cluster-GCN partition.
 
         The returned handle dictionary contains paths and metadata required by
         block-streaming dataloaders (e.g. `TBBlockStreamDataModule`) to build
@@ -379,7 +376,9 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             logging.info(
                 f"[pack_global_partition] Reusing cached partition: {part_dir}"
             )
-            return torch.load(handle_path, map_location="cpu", weights_only=False)
+            return torch.load(
+                handle_path, map_location="cpu", weights_only=False
+            )
 
         # Slow path: first runner partitions; others wait on the file-lock indefinitely.
         os.makedirs(processed_base, exist_ok=True)
@@ -390,7 +389,9 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 logging.info(
                     f"[pack_global_partition] Reusing partition built by peer: {part_dir}"
                 )
-                return torch.load(handle_path, map_location="cpu", weights_only=False)
+                return torch.load(
+                    handle_path, map_location="cpu", weights_only=False
+                )
 
             os.makedirs(part_dir, exist_ok=True)
             logging.info(
@@ -413,13 +414,19 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 raise ValueError("Cannot infer num_nodes from full graph.")
 
             if getattr(full, "train_mask", None) is None:
-                ds_train, ds_val, ds_test = self.load_dataset_splits(split_params)
+                ds_train, ds_val, ds_test = self.load_dataset_splits(
+                    split_params
+                )
                 full = ds_train.data_lst[0]
                 full.train_mask = to_bool_mask(
                     getattr(full, "train_mask", None), N
                 )
-                full.val_mask = to_bool_mask(getattr(full, "val_mask", None), N)
-                full.test_mask = to_bool_mask(getattr(full, "test_mask", None), N)
+                full.val_mask = to_bool_mask(
+                    getattr(full, "val_mask", None), N
+                )
+                full.test_mask = to_bool_mask(
+                    getattr(full, "test_mask", None), N
+                )
 
             # Checks: we require a single full graph with masks.
             if getattr(full, "edge_index", None) is None:
@@ -535,7 +542,9 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                     "train_mask_perm": osp.join(mm_dir, "train_mask_perm.npy"),
                     "val_mask_perm": osp.join(mm_dir, "val_mask_perm.npy"),
                     "test_mask_perm": osp.join(mm_dir, "test_mask_perm.npy"),
-                    "parts_with_train": osp.join(mm_dir, "parts_with_train.npy"),
+                    "parts_with_train": osp.join(
+                        mm_dir, "parts_with_train.npy"
+                    ),
                     "parts_with_val": osp.join(mm_dir, "parts_with_val.npy"),
                     "parts_with_test": osp.join(mm_dir, "parts_with_test.npy"),
                 },

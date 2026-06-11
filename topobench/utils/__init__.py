@@ -6,6 +6,10 @@ from topobench.utils.instantiators import (
 from topobench.utils.logging_utils import (
     log_hyperparameters,
 )
+from topobench.utils.phase_tracking import (
+    PhaseResourceTracker,
+    set_current_phase_tracker,
+)
 from topobench.utils.pylogger import RankedLogger
 from topobench.utils.rich_utils import (
     enforce_tags,
@@ -19,6 +23,7 @@ from topobench.utils.utils import (
 
 __all__ = [
     "RankedLogger",
+    "PhaseResourceTracker",
     "enforce_tags",
     "extras",
     "get_metric_value",
@@ -26,5 +31,6 @@ __all__ = [
     "instantiate_loggers",
     "log_hyperparameters",
     "print_config_tree",
+    "set_current_phase_tracker",
     "task_wrapper",
 ]

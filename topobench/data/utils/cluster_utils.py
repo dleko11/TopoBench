@@ -1,3 +1,5 @@
+"""Utilities for building and storing Cluster-GCN partition data."""
+
 import os
 import os.path as osp
 from collections.abc import Callable
@@ -40,10 +42,10 @@ def build_cluster_transform(transforms_config) -> Callable | None:
     hydra.utils.instantiate(transforms_config)
 
     from topobench.transforms.data_transform import DataTransform
+
     # Now wrap each config in a DataTransform, like PreProcessor does.
     transform_dict = {
-        key: DataTransform(**value)
-        for key, value in transforms_config.items()
+        key: DataTransform(**value) for key, value in transforms_config.items()
     }
 
     if not transform_dict:
@@ -89,11 +91,12 @@ def to_bool_mask(mask: torch.Tensor, N: int) -> torch.Tensor:
 
     # Case 3: length-N 0/1 or float scores
     if mask.numel() == N:
-        return (mask != 0)
-        
+        return mask != 0
+
     # Fallback for ruff check:
     return torch.zeros(N, dtype=torch.bool)
-        
+
+
 def _tensor_schema_entry(t: torch.Tensor) -> dict[str, Any]:
     """Create a schema entry for a tensor value.
 
@@ -115,7 +118,12 @@ def _tensor_schema_entry(t: torch.Tensor) -> dict[str, Any]:
     if t.dim() == 0:  # scalar tensor -> store as scalar type
         if t.dtype in (torch.int8, torch.int16, torch.int32, torch.int64):
             return int
-        if t.dtype in (torch.float16, torch.float32, torch.float64, torch.bfloat16):
+        if t.dtype in (
+            torch.float16,
+            torch.float32,
+            torch.float64,
+            torch.bfloat16,
+        ):
             return float
         if t.dtype == torch.bool:
             return bool
@@ -154,6 +162,7 @@ class ClusterOnDisk(OnDiskDataset):
     pre_filter : callable, optional
         Filter applied before writing samples to disk.
     """
+
     def __init__(
         self,
         root: str,
@@ -198,7 +207,9 @@ class ClusterOnDisk(OnDiskDataset):
         for i in range(len(cluster_data)):
             part = cluster_data[i]
             if getattr(part, "edge_index", None) is None:
-                raise ValueError("Cluster part without edge_index; cannot store.")
+                raise ValueError(
+                    "Cluster part without edge_index; cannot store."
+                )
             for key, val in self._iter_data_items(part):
                 if key == "edge_index":
                     continue
@@ -288,7 +299,7 @@ class ClusterOnDisk(OnDiskDataset):
         """
         # Yield (key, value) pairs for all public attrs in a Data,
         # including num_nodes if set.
-        for k in d.keys(): # noqa: SIM118
+        for k in d.keys():  # noqa: SIM118
             yield k, getattr(d, k)
         if getattr(d, "num_nodes", None) is not None:
             yield "num_nodes", int(d.num_nodes)
@@ -353,10 +364,12 @@ class ClusterOnDisk(OnDiskDataset):
         row: dict[str, Any] = {}
         # edge_index is mandatory
         if getattr(data, "edge_index", None) is None:
-            raise ValueError("Data object without edge_index cannot be serialized.")
+            raise ValueError(
+                "Data object without edge_index cannot be serialized."
+            )
         row["edge_index"] = data.edge_index
 
-        for key in self.schema: # .keys():
+        for key in self.schema:  # .keys():
             if key == "edge_index":
                 continue
             if hasattr(data, key):
@@ -405,7 +418,9 @@ class ClusterOnDisk(OnDiskDataset):
             Metadata including partition and configuration.
         """
         if self._meta is None:
-            self._meta = torch.load(self._meta_path, map_location="cpu", weights_only=False)
+            self._meta = torch.load(
+                self._meta_path, map_location="cpu", weights_only=False
+            )
         return self._meta
 
     @property
@@ -493,22 +508,28 @@ class ClusterOnDisk(OnDiskDataset):
         # Save structural arrays from Partition P (PyG's object):
         # P has: partptr, indptr, index, node_perm, edge_perm
         np.save(osp.join(out_dir, "partptr.npy"), P.partptr.cpu().numpy())
-        np.save(osp.join(out_dir, "indptr.npy"),  P.indptr.cpu().numpy())
+        np.save(osp.join(out_dir, "indptr.npy"), P.indptr.cpu().numpy())
         np.save(osp.join(out_dir, "indices.npy"), P.index.cpu().numpy())
 
         # Node-level perm:
         node_perm = P.node_perm.cpu()
         N = int(full.num_nodes)
-        
+
         # Save permutation maps
         # node_perm[i] = original_node_id for permuted row i
         perm_to_global = node_perm.clone().to(torch.long)
-        np.save(osp.join(out_dir, "perm_to_global.npy"), perm_to_global.numpy())
+        np.save(
+            osp.join(out_dir, "perm_to_global.npy"), perm_to_global.numpy()
+        )
 
         # Inverse: global_id -> perm_index (handy for debugging / analysis)
         global_to_perm = torch.empty_like(perm_to_global)
-        global_to_perm[perm_to_global] = torch.arange(perm_to_global.numel(), dtype=torch.long)
-        np.save(osp.join(out_dir, "global_to_perm.npy"), global_to_perm.numpy())
+        global_to_perm[perm_to_global] = torch.arange(
+            perm_to_global.numel(), dtype=torch.long
+        )
+        np.save(
+            osp.join(out_dir, "global_to_perm.npy"), global_to_perm.numpy()
+        )
 
         # X_perm.npy (features)
         if getattr(full, "x", None) is not None and full.x.numel() > 0:

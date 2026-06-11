@@ -15,6 +15,8 @@ from lightning.pytorch import LightningDataModule
 from torch.utils.data import DataLoader, Dataset
 from torch_geometric.data import Data
 
+from topobench.utils.phase_tracking import track_phase
+
 
 class _HandleAdapter:
     """Minimal dataset-like adapter for the CSR collator.
@@ -795,67 +797,77 @@ class ClusterGCNDataModule(LightningDataModule):
             if num_workers is None:
                 num_workers = self.num_workers
 
-            if num_workers > 1:
-                import logging
-                from concurrent.futures import (
-                    ProcessPoolExecutor,
-                    as_completed,
-                )
-
-                logging.info(
-                    f"[VAL] Building cache with {num_workers} workers: {len(batches)} batches"
-                )
-
-                tasks = []
-                for i, parts in enumerate(batches):
-                    final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
-                    tasks.append(
-                        (
-                            i,
-                            parts,
-                            final_path,
-                            self.handle,
-                            self.with_edge_attr,
-                            "val",
-                            self.transform_config,
-                        )
+            cache_tracking_extra = {
+                "tracking/val_cache_batches": len(batches),
+                "tracking/val_cache_workers": int(num_workers),
+            }
+            with track_phase("val_cache_build", extra=cache_tracking_extra):
+                if num_workers > 1:
+                    import logging
+                    from concurrent.futures import (
+                        ProcessPoolExecutor,
+                        as_completed,
                     )
 
-                cache_files = [None] * len(tasks)
-                with ProcessPoolExecutor(max_workers=num_workers) as executor:
-                    futures = {
-                        executor.submit(_process_and_save_batch, task): task[0]
-                        for task in tasks
-                    }
-                    for future in as_completed(futures):
-                        idx = futures[future]
-                        _, final_path, duration = future.result()
-                        cache_files[idx] = final_path
+                    logging.info(
+                        f"[VAL] Building cache with {num_workers} workers: {len(batches)} batches"
+                    )
 
-            else:
-                collate = BlockCSRBatchCollator(
-                    self.ds_adapter,
-                    device=None,
-                    with_edge_attr=self.with_edge_attr,
-                    active_split="val",
-                    post_batch_transform=self.post_batch_transform,
-                )
-                import logging
+                    tasks = []
+                    for i, parts in enumerate(batches):
+                        final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
+                        tasks.append(
+                            (
+                                i,
+                                parts,
+                                final_path,
+                                self.handle,
+                                self.with_edge_attr,
+                                "val",
+                                self.transform_config,
+                            )
+                        )
 
-                logging.info(
-                    f"[VAL] Building cache with serial fallback: {len(batches)} batches"
-                )
-                for i, parts in enumerate(batches):
-                    data = collate(parts)
-                    data = data.cpu()
-                    tmp_path = osp.join(cache_dir, f"batch_{i:04d}.pt.tmp")
-                    final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
-                    torch.save(data, tmp_path)
-                    os.replace(tmp_path, final_path)
-                    cache_files.append(final_path)
+                    cache_files = [None] * len(tasks)
+                    with ProcessPoolExecutor(
+                        max_workers=num_workers
+                    ) as executor:
+                        futures = {
+                            executor.submit(
+                                _process_and_save_batch,
+                                task,
+                            ): task[0]
+                            for task in tasks
+                        }
+                        for future in as_completed(futures):
+                            idx = futures[future]
+                            _, final_path, duration = future.result()
+                            cache_files[idx] = final_path
 
-            with open(complete_marker, "w") as f:
-                f.write("done")
+                else:
+                    collate = BlockCSRBatchCollator(
+                        self.ds_adapter,
+                        device=None,
+                        with_edge_attr=self.with_edge_attr,
+                        active_split="val",
+                        post_batch_transform=self.post_batch_transform,
+                    )
+                    import logging
+
+                    logging.info(
+                        f"[VAL] Building cache with serial fallback: {len(batches)} batches"
+                    )
+                    for i, parts in enumerate(batches):
+                        data = collate(parts)
+                        data = data.cpu()
+                        tmp_path = osp.join(cache_dir, f"batch_{i:04d}.pt.tmp")
+                        final_path = osp.join(cache_dir, f"batch_{i:04d}.pt")
+                        torch.save(data, tmp_path)
+                        os.replace(tmp_path, final_path)
+                        cache_files.append(final_path)
+
+                with open(complete_marker, "w") as f:
+                    f.write("done")
 
         self._val_cache_files = cache_files
 

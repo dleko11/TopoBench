@@ -1,7 +1,7 @@
 # Dataset loader config
 loader:
   _target_: topobench.data.loaders.CoraFullDatasetLoader
-  parameters: 
+  parameters:
     data_domain: graph
     data_type: cocitation
     data_name: CoraFull
@@ -29,6 +29,6 @@ split_params:
 # Dataloader parameters for legacy paths (kept; ignored in on_disk_cluster mode)
 dataloader_params:
   batch_size: 1
-  drop_last: True  
+  drop_last: True
   num_workers: 0
   pin_memory: False
