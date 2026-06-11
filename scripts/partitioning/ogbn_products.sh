@@ -37,7 +37,7 @@ MODEL_SPECS=(
     "cwn::cell/cwn::cell"
     "cell_topotune::cell/topotune::cell"
     "scn::simplicial/scn::simplicial"
-    "sccnn::simplicial/sccnn::simplicial"
+    "sccnn::simplicial/sccnn_custom::simplicial"
 )
 
 source "$SCRIPT_DIR/common.sh"
