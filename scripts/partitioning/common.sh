@@ -279,7 +279,9 @@ run_dataset_suite() {
                                                 done
 
                                                 current_gpu="${gpus[$assigned_slot]}"
-                                                local project_name="${script_name}_${mode}"
+                                                local project_prefix="${WANDB_PROJECT_PREFIX:-$script_name}"
+                                                local project_suffix="${WANDB_PROJECT_SUFFIX:-}"
+                                                local project_name="${project_prefix}_${mode}${project_suffix}"
 
                                                 cmd=(
                                                     "python" "-m" "topobench"
