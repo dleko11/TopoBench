@@ -354,10 +354,15 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             file locations for all relevant arrays.
         """
         # Build a stable hash from the full partition configuration.
+        stream_params_for_hash = ensure_serializable(stream_params)
+        if isinstance(stream_params_for_hash, dict):
+            stream_params_for_hash = dict(stream_params_for_hash)
+            stream_params_for_hash.pop("reconstruct_cross_cluster_edges", None)
+
         cluster_config = {
             "split_params": ensure_serializable(split_params),
             "cluster_params": ensure_serializable(cluster_params),
-            "stream_params": ensure_serializable(stream_params),
+            "stream_params": stream_params_for_hash,
             "dtype_policy": dtype_policy,
         }
         config_hash = make_hash(cluster_config)

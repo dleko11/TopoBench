@@ -163,6 +163,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                     "transform": transform_cfg_container,
                     "q_val": stream_cfg.get("q_val", None),
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
+                    "reconstruct_cross_cluster_edges": stream_cfg.get(
+                        "reconstruct_cross_cluster_edges", True
+                    ),
                 }
             )
 
@@ -178,6 +181,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 cache_num_workers=stream_cfg.get("cache_num_workers", None),
                 pin_memory=stream_cfg.get("pin_memory", False),
                 with_edge_attr=stream_cfg.get("with_edge_attr", False),
+                reconstruct_cross_cluster_edges=stream_cfg.get(
+                    "reconstruct_cross_cluster_edges", True
+                ),
                 eval_cover_strategy=cfg.get("eval", {}).get(
                     "cover_strategy", "all_parts"
                 ),

@@ -25,6 +25,7 @@ loader:
       num_workers: 0
       pin_memory: false
       with_edge_attr: false
+      reconstruct_cross_cluster_edges: true
       precompute_split_parts: true
 
     # how to store features on disk

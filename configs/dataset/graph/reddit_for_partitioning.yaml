@@ -25,6 +25,7 @@ loader:
       num_workers: 0                      # increase if needed
       pin_memory: false                   # true if you want faster H2D
       with_edge_attr: false               # WebKB has no edge_attr
+      reconstruct_cross_cluster_edges: true
       precompute_split_parts: true        # write parts_with_{train,val,test}.npy
 
     # NEW: how to store features on disk

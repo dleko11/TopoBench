@@ -214,6 +214,10 @@ class BlockCSRBatchCollator:
         Device to move the batch to. If ``None``, stays on CPU.
     with_edge_attr : bool, optional
         If True, reads and includes edge attributes. Default is False.
+    reconstruct_cross_cluster_edges : bool, optional
+        If True, keeps all edges induced by the sampled cluster union. If
+        False, keeps only intra-cluster edges inside each sampled partition.
+        Default is True.
     active_split : {"train", "val", "test"}, optional
         Active split whose supervision mask is used. Default is "train".
     post_batch_transform : callable or None, optional
@@ -226,12 +230,16 @@ class BlockCSRBatchCollator:
         *,
         device: torch.device | None = None,
         with_edge_attr: bool = False,
+        reconstruct_cross_cluster_edges: bool = True,
         active_split: str = "train",  # "train" | "val" | "test"
         post_batch_transform: Callable[..., Any] | None = None,
     ) -> None:
         self.ds = ds_like
         self.device = device
         self.with_edge_attr = with_edge_attr
+        self.reconstruct_cross_cluster_edges = bool(
+            reconstruct_cross_cluster_edges
+        )
         self.active_split = str(active_split).lower()
         assert self.active_split in ("train", "val", "test")
         self.post_batch_transform = post_batch_transform
@@ -342,10 +350,12 @@ class BlockCSRBatchCollator:
         )
 
         # stream CSR rows for each [s:e) -> make row/col (global ids)
-        row_chunks, col_chunks = [], []
+        row_chunks, col_chunks, src_part_chunks = [], [], []
         ea_chunks = [] if self.EA is not None else None
 
-        for s, e, off in zip(starts, ends, offsets, strict=False):
+        for part_idx, (s, e, off) in enumerate(
+            zip(starts, ends, offsets, strict=False)
+        ):
             rowptr = self.indptr[s : e + 1]  # shape (e-s+1,)
             deg = rowptr[1:] - rowptr[:-1]  # per-row degrees
             beg, fin = (
@@ -360,6 +370,9 @@ class BlockCSRBatchCollator:
             ) + int(off)
             row_chunks.append(rows)
             col_chunks.append(cols)
+            src_part_chunks.append(
+                torch.full((cols.numel(),), part_idx, dtype=torch.int64)
+            )
 
             if ea_chunks is not None:
                 ea_chunks.append(torch.from_numpy(self.EA[beg:fin]))
@@ -374,6 +387,11 @@ class BlockCSRBatchCollator:
             if col_chunks
             else torch.empty(0, dtype=torch.int64)
         )
+        src_part = (
+            torch.cat(src_part_chunks, dim=0)
+            if src_part_chunks
+            else torch.empty(0, dtype=torch.int64)
+        )
         edge_attr = torch.cat(ea_chunks, dim=0) if ea_chunks else None
 
         # keep only edges whose dst is inside the union of selected ranges
@@ -383,6 +401,8 @@ class BlockCSRBatchCollator:
 
         idx = torch.bucketize(col, starts_t, right=True) - 1
         valid = (idx >= 0) & (col < ends_t.gather(0, idx.clamp_min(0)))
+        if not self.reconstruct_cross_cluster_edges:
+            valid = valid & (idx == src_part)
 
         row = row[valid]
         col = col[valid]
@@ -444,16 +464,24 @@ def _process_and_save_batch(task):
     Parameters
     ----------
     task : tuple
-        Tuple containing (index, parts, final_path, handle, with_edge_attr, split, transform_config).
+        Tuple containing (index, parts, final_path, handle, with_edge_attr,
+        reconstruct_cross_cluster_edges, split, transform_config).
 
     Returns
     -------
     tuple
         Tuple of (index, final_path, duration).
     """
-    i, parts, final_path, handle, with_edge_attr, split, transform_config = (
-        task
-    )
+    (
+        i,
+        parts,
+        final_path,
+        handle,
+        with_edge_attr,
+        reconstruct_cross_cluster_edges,
+        split,
+        transform_config,
+    ) = task
     import os
     import time
 
@@ -477,6 +505,7 @@ def _process_and_save_batch(task):
         ds_adapter,
         device=None,
         with_edge_attr=with_edge_attr,
+        reconstruct_cross_cluster_edges=reconstruct_cross_cluster_edges,
         active_split=split,
         post_batch_transform=post_batch_transform,
     )
@@ -519,6 +548,11 @@ class ClusterGCNDataModule(LightningDataModule):
         If True, pin memory in dataloaders. Default is False.
     with_edge_attr : bool, optional
         If True, batches include edge attributes. Default is False.
+    reconstruct_cross_cluster_edges : bool, optional
+        If True, each sampled multi-cluster batch reconstructs the induced
+        graph over all sampled cluster nodes. If False, cross-cluster edges are
+        dropped even when both endpoints are in the sampled batch. Default is
+        True.
     eval_cover_strategy : str, optional
         Strategy for evaluation coverage. Default is "all_parts".
     seed : int, optional
@@ -553,6 +587,7 @@ class ClusterGCNDataModule(LightningDataModule):
         num_workers: int = 0,
         pin_memory: bool = False,
         with_edge_attr: bool = False,
+        reconstruct_cross_cluster_edges: bool = True,
         eval_cover_strategy: str = "all_parts",
         seed: int = 42,
         device: torch.device | None = None,
@@ -592,6 +627,9 @@ class ClusterGCNDataModule(LightningDataModule):
         self.num_workers = int(num_workers)
         self.pin_memory = bool(pin_memory)
         self.with_edge_attr = bool(with_edge_attr)
+        self.reconstruct_cross_cluster_edges = bool(
+            reconstruct_cross_cluster_edges
+        )
         self.eval_cover_strategy = str(eval_cover_strategy)
         self.seed = int(seed)
         self.device = device
@@ -709,6 +747,9 @@ class ClusterGCNDataModule(LightningDataModule):
             self.ds_adapter,
             device=self.device,
             with_edge_attr=self.with_edge_attr,
+            reconstruct_cross_cluster_edges=(
+                self.reconstruct_cross_cluster_edges
+            ),
             active_split=split,
             post_batch_transform=self.post_batch_transform,
         )
@@ -756,6 +797,9 @@ class ClusterGCNDataModule(LightningDataModule):
                     {
                         "q_val": self.q_val,
                         "with_edge_attr": int(self.with_edge_attr),
+                        "reconstruct_cross_cluster_edges": int(
+                            self.reconstruct_cross_cluster_edges
+                        ),
                         "seed": self.seed,
                         "eval_cover_strategy": self.eval_cover_strategy,
                     }
@@ -823,6 +867,7 @@ class ClusterGCNDataModule(LightningDataModule):
                                 final_path,
                                 self.handle,
                                 self.with_edge_attr,
+                                self.reconstruct_cross_cluster_edges,
                                 "val",
                                 self.transform_config,
                             )
@@ -849,6 +894,9 @@ class ClusterGCNDataModule(LightningDataModule):
                         self.ds_adapter,
                         device=None,
                         with_edge_attr=self.with_edge_attr,
+                        reconstruct_cross_cluster_edges=(
+                            self.reconstruct_cross_cluster_edges
+                        ),
                         active_split="val",
                         post_batch_transform=self.post_batch_transform,
                     )
