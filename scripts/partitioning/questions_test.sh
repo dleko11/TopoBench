@@ -1,9 +1,11 @@
 #!/bin/bash
 
 SELECTED_GPUS="${SELECTED_GPUS:-0}"
-RESUME="${RESUME:-true}"
+RESUME="${RESUME:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 wandb_entity="${wandb_entity:-topobench-scalability}"
+MAX_ATTEMPTS="${MAX_ATTEMPTS:-1}"
+export CUDA_LAUNCH_BLOCKING="${CUDA_LAUNCH_BLOCKING:-1}"
 
 LR_VALUES=(0.001)
 WEIGHT_DECAY_VALUES=(0)
