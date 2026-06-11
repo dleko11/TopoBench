@@ -59,18 +59,37 @@ class SCNWrapper(AbstractWrapper):
         torch.sparse.FloatTensor
             Normalized matrix.
         """
-        matrix_ = matrix.to_dense()
-        n, _ = matrix_.shape
-        abs_matrix = abs(matrix_)
-        diag_sum = abs_matrix.sum(axis=1)
+        if not matrix.is_sparse or matrix.layout != torch.sparse_coo:
+            matrix = matrix.to_sparse_coo()
 
-        # Handle division by zero
-        idxs = torch.where(diag_sum != 0)
-        diag_sum[idxs] = 1.0 / torch.sqrt(diag_sum[idxs])
+        matrix = matrix.coalesce()
+        indices = matrix.indices()
+        values = matrix.values()
+        n_rows, n_cols = matrix.shape
 
-        diag_indices = torch.stack([torch.arange(n), torch.arange(n)])
-        diag_matrix = torch.sparse_coo_tensor(
-            diag_indices, diag_sum, matrix_.shape, device=matrix.device
+        if n_rows != n_cols:
+            raise ValueError(
+                "SCN Hodge Laplacian normalization expects square matrices, "
+                f"got shape {tuple(matrix.shape)}."
+            )
+
+        row_sums = torch.zeros(
+            n_rows, dtype=values.dtype, device=values.device
+        )
+        if values.numel() > 0:
+            row_sums.scatter_add_(0, indices[0], values.abs())
+
+        inv_sqrt = torch.zeros_like(row_sums)
+        nonzero = row_sums != 0
+        inv_sqrt[nonzero] = torch.rsqrt(row_sums[nonzero])
+
+        normalized_values = (
+            values * inv_sqrt[indices[0]] * inv_sqrt[indices[1]]
+        )
+        return torch.sparse_coo_tensor(
+            indices,
+            normalized_values,
+            matrix.shape,
+            device=matrix.device,
+            dtype=values.dtype,
         ).coalesce()
-        normalized_matrix = diag_matrix @ (matrix @ diag_matrix)
-        return normalized_matrix
