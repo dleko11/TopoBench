@@ -72,6 +72,8 @@ def initialize_hydra() -> DictConfig:
 torch.set_num_threads(1)
 log = RankedLogger(__name__, rank_zero_only=True)
 
+_TEST_INFERENCE_PROTOCOLS = {"batched", "full_graph", "ensemble"}
+
 
 @task_wrapper
 def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -307,6 +309,405 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
     return metric_dict, object_dict
 
 
+def _resolve_test_inference_protocols(cfg: DictConfig) -> list[str]:
+    """Return configured test inference protocols.
+
+    Parameters
+    ----------
+    cfg : DictConfig
+        Composed Hydra configuration.
+
+    Returns
+    -------
+    list[str]
+        Normalized protocol names.
+    """
+    inference_cfg = cfg.get("test_inference", {}) or {}
+    protocols = inference_cfg.get("protocols", ["batched"])
+    if isinstance(protocols, str):
+        protocols = [protocols]
+
+    resolved = [str(protocol).lower() for protocol in protocols]
+    if not resolved:
+        raise ValueError("test_inference.protocols must not be empty.")
+
+    invalid = sorted(set(resolved) - _TEST_INFERENCE_PROTOCOLS)
+    if invalid:
+        raise ValueError(
+            "Unsupported test inference protocol(s): "
+            f"{invalid}. Expected one of {sorted(_TEST_INFERENCE_PROTOCOLS)}."
+        )
+
+    return resolved
+
+
+def _validate_test_inference_protocols(
+    protocols: list[str],
+    datamodule: Any,
+) -> bool:
+    """Validate protocols against the datamodule type.
+
+    Parameters
+    ----------
+    protocols : list[str]
+        Configured test inference protocol names.
+    datamodule : Any
+        Datamodule used for the current run.
+
+    Returns
+    -------
+    bool
+        Whether the datamodule is a ClusterGCNDataModule.
+    """
+    from topobench.dataloader import ClusterGCNDataModule
+
+    is_cluster = isinstance(datamodule, ClusterGCNDataModule)
+    if not is_cluster and any(protocol != "batched" for protocol in protocols):
+        raise ValueError(
+            "test_inference protocols 'full_graph' and 'ensemble' require "
+            "ClusterGCNDataModule/on_disk_cluster. Non-cluster dataloaders "
+            "support only 'batched'."
+        )
+    return is_cluster
+
+
+def _metric_suffix(key: str) -> str:
+    """Strip a Lightning metric namespace from a metric key.
+
+    Parameters
+    ----------
+    key : str
+        Metric key, optionally namespaced by a slash.
+
+    Returns
+    -------
+    str
+        Metric key without the leading namespace.
+    """
+    return key.split("/", 1)[1] if "/" in key else key
+
+
+def _metric_log_value(value: Any) -> Any:
+    """Convert scalar tensors to plain values for external loggers.
+
+    Parameters
+    ----------
+    value : Any
+        Metric value to normalize.
+
+    Returns
+    -------
+    Any
+        Plain scalar for scalar tensors, otherwise the original value.
+    """
+    if torch.is_tensor(value):
+        value = value.detach().cpu()
+        if value.numel() == 1:
+            return value.item()
+    return value
+
+
+def _log_prefixed_metrics(
+    *,
+    prefix: str,
+    metrics: dict[str, Any],
+    logger: list[Logger],
+) -> None:
+    """Log metrics under a prefix to configured external loggers.
+
+    Parameters
+    ----------
+    prefix : str
+        Metric namespace prefix.
+    metrics : dict[str, Any]
+        Unprefixed metric values.
+    logger : list[Logger]
+        Configured Lightning loggers.
+    """
+    logged = {
+        f"{prefix}/{key}": _metric_log_value(value)
+        for key, value in metrics.items()
+    }
+    log.info(logged)
+    for lgr in logger:
+        if hasattr(lgr, "log_metrics"):
+            lgr.log_metrics(logged)
+
+
+def _run_lightning_test_protocol(
+    *,
+    checkpoint_trainer: Trainer,
+    checkpoint_model: LightningModule,
+    dataloader: Any,
+    phase: str,
+) -> dict[str, Any]:
+    """Run a standard Lightning test protocol.
+
+    Parameters
+    ----------
+    checkpoint_trainer : Trainer
+        Trainer used for checkpoint evaluation.
+    checkpoint_model : LightningModule
+        Model loaded with the best checkpoint weights.
+    dataloader : Any
+        Test dataloader for the protocol.
+    phase : str
+        Phase-tracking name.
+
+    Returns
+    -------
+    dict[str, Any]
+        Unprefixed test metrics.
+    """
+    with track_phase(phase):
+        results = checkpoint_trainer.test(
+            model=checkpoint_model,
+            dataloaders=dataloader,
+        )
+    if not results:
+        return {}
+    return {_metric_suffix(k): v for k, v in results[0].items()}
+
+
+def _average_ensemble_logits_by_global_nid(
+    *,
+    logit_chunks: list[torch.Tensor],
+    label_chunks: list[torch.Tensor],
+    nid_chunks: list[torch.Tensor],
+    expected_runs: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Average repeated logits per global node id and validate coverage.
+
+    Parameters
+    ----------
+    logit_chunks : list[torch.Tensor]
+        Per-batch supervised logits from ensemble passes.
+    label_chunks : list[torch.Tensor]
+        Per-batch supervised labels from ensemble passes.
+    nid_chunks : list[torch.Tensor]
+        Per-batch global node identifiers from ensemble passes.
+    expected_runs : int
+        Required number of predictions per test node.
+
+    Returns
+    -------
+    tuple[torch.Tensor, torch.Tensor, torch.Tensor]
+        Averaged logits, aligned labels, and sorted global node identifiers.
+    """
+    if expected_runs <= 0:
+        raise ValueError(
+            f"expected_runs must be positive, got {expected_runs}."
+        )
+    if not logit_chunks:
+        raise ValueError("Ensemble inference produced no predictions.")
+
+    logits = torch.cat(logit_chunks, dim=0)
+    labels = torch.cat(label_chunks, dim=0)
+    global_nids = torch.cat(nid_chunks, dim=0).to(torch.long)
+    if global_nids.numel() == 0:
+        raise ValueError("Ensemble inference found no supervised test nodes.")
+
+    unique_nids, inverse = torch.unique(
+        global_nids,
+        sorted=True,
+        return_inverse=True,
+    )
+    counts = torch.bincount(inverse, minlength=unique_nids.numel())
+    bad_counts = counts != expected_runs
+    if bad_counts.any():
+        bad_nids = unique_nids[bad_counts][:10].tolist()
+        raise ValueError(
+            "Ensemble coverage mismatch: each test node must appear exactly "
+            f"{expected_runs} times. Example mismatched global_nid values: "
+            f"{bad_nids}."
+        )
+
+    logit_sums = torch.zeros(
+        (unique_nids.numel(), *logits.shape[1:]),
+        dtype=logits.dtype,
+    )
+    logit_sums.index_add_(0, inverse, logits)
+    count_shape = (counts.shape[0],) + (1,) * (logits.dim() - 1)
+    avg_logits = logit_sums / counts.view(count_shape).to(logits.dtype)
+
+    avg_labels = []
+    for idx, nid in enumerate(unique_nids):
+        node_labels = labels[inverse == idx]
+        first = node_labels[0]
+        if not torch.equal(node_labels, first.expand_as(node_labels)):
+            raise ValueError(
+                "Inconsistent labels encountered for repeated ensemble "
+                f"predictions at global_nid={int(nid)}."
+            )
+        avg_labels.append(first)
+
+    return avg_logits, torch.stack(avg_labels, dim=0), unique_nids
+
+
+def _dataset_loss_module(checkpoint_model: LightningModule) -> Any:
+    """Return the dataset loss object used for ensemble loss.
+
+    Parameters
+    ----------
+    checkpoint_model : LightningModule
+        Model containing the configured loss module.
+
+    Returns
+    -------
+    Any
+        Dataset loss object with ``forward_criterion``.
+    """
+    loss_module = getattr(checkpoint_model, "loss", None)
+    if hasattr(loss_module, "forward_criterion"):
+        return loss_module
+
+    for candidate in getattr(loss_module, "losses", []):
+        if hasattr(candidate, "forward_criterion"):
+            return candidate
+
+    raise ValueError(
+        "Ensemble loss computation requires a dataset loss with "
+        "forward_criterion."
+    )
+
+
+def _compute_ensemble_metrics(
+    *,
+    checkpoint_model: LightningModule,
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+) -> dict[str, Any]:
+    """Compute evaluator metrics and dataset loss for averaged logits.
+
+    Parameters
+    ----------
+    checkpoint_model : LightningModule
+        Model providing evaluator and loss objects.
+    logits : torch.Tensor
+        Averaged logits.
+    labels : torch.Tensor
+        Labels aligned with averaged logits.
+
+    Returns
+    -------
+    dict[str, Any]
+        Evaluator metrics plus dataset loss.
+    """
+    checkpoint_model.evaluator.reset()
+    checkpoint_model.evaluator.update({"logits": logits, "labels": labels})
+    metrics = dict(checkpoint_model.evaluator.compute())
+    checkpoint_model.evaluator.reset()
+
+    dataset_loss = _dataset_loss_module(checkpoint_model)
+    metrics["loss"] = dataset_loss.forward_criterion(
+        logits,
+        labels,
+    ).detach()
+    return metrics
+
+
+def _run_ensemble_test_inference(
+    *,
+    checkpoint_model: LightningModule,
+    cfg: DictConfig,
+    datamodule: Any,
+    device: torch.device,
+) -> dict[str, Any]:
+    """Run shuffled batched inference repeatedly and average logits.
+
+    Parameters
+    ----------
+    checkpoint_model : LightningModule
+        Model loaded with the best checkpoint weights.
+    cfg : DictConfig
+        Composed Hydra configuration.
+    datamodule : Any
+        Cluster datamodule providing inference dataloaders.
+    device : torch.device
+        Device used for model inference.
+
+    Returns
+    -------
+    dict[str, Any]
+        Metrics computed from averaged ensemble logits.
+    """
+    inference_cfg = cfg.get("test_inference", {}) or {}
+    average = str(inference_cfg.get("ensemble_average", "logits")).lower()
+    if average != "logits":
+        raise ValueError(
+            "Only test_inference.ensemble_average=logits is supported."
+        )
+
+    ensemble_runs = int(inference_cfg.get("ensemble_runs", 10))
+    if ensemble_runs <= 0:
+        raise ValueError(
+            "test_inference.ensemble_runs must be positive, "
+            f"got {ensemble_runs}."
+        )
+    ensemble_shuffle = bool(inference_cfg.get("ensemble_shuffle", True))
+    ensemble_seed = int(
+        inference_cfg.get("ensemble_seed", cfg.get("seed", 42))
+    )
+
+    logit_chunks: list[torch.Tensor] = []
+    label_chunks: list[torch.Tensor] = []
+    nid_chunks: list[torch.Tensor] = []
+    was_training = checkpoint_model.training
+    checkpoint_model.eval()
+
+    try:
+        with torch.inference_mode():
+            for run_idx in range(ensemble_runs):
+                loader = datamodule.inference_dataloader(
+                    split="test",
+                    shuffle=ensemble_shuffle,
+                    seed=ensemble_seed + run_idx,
+                    cover_parts="split",
+                )
+                for batch in loader:
+                    batch = batch.to(device)
+                    batch["model_state"] = "Test"
+                    checkpoint_model.state_str = "Test"
+                    model_out = checkpoint_model.forward(batch)
+
+                    mask = batch.test_mask.to(torch.bool)
+                    logits = model_out["logits"]
+                    labels = model_out["labels"]
+                    if logits.size(0) != mask.numel():
+                        raise ValueError(
+                            "Ensemble inference expects node-level logits "
+                            "aligned with batch.test_mask."
+                        )
+                    if labels.size(0) != mask.numel():
+                        raise ValueError(
+                            "Ensemble inference expects node-level labels "
+                            "aligned with batch.test_mask."
+                        )
+                    if not hasattr(batch, "global_nid"):
+                        raise ValueError(
+                            "Ensemble inference requires batch.global_nid."
+                        )
+
+                    logit_chunks.append(logits[mask].detach().cpu())
+                    label_chunks.append(labels[mask].detach().cpu())
+                    nid_chunks.append(batch.global_nid[mask].detach().cpu())
+    finally:
+        if was_training:
+            checkpoint_model.train()
+
+    avg_logits, avg_labels, _ = _average_ensemble_logits_by_global_nid(
+        logit_chunks=logit_chunks,
+        label_chunks=label_chunks,
+        nid_chunks=nid_chunks,
+        expected_runs=ensemble_runs,
+    )
+    return _compute_ensemble_metrics(
+        checkpoint_model=checkpoint_model,
+        logits=avg_logits,
+        labels=avg_labels,
+    )
+
+
 def rerun_best_model_checkpoint(
     checkpoint_model: LightningModule,
     cfg: DictConfig,
@@ -315,12 +716,12 @@ def rerun_best_model_checkpoint(
     callbacks: list[Callback],
     logger: list[Logger],
 ) -> None:
-    """Rerun the best model checkpoint on validation and test datasets to log final metrics.
+    """Rerun the best model checkpoint on validation and test datasets.
 
     This function iterates through the callbacks to locate the `ModelCheckpoint`, loads the
-    best model weights, and runs a test pass on both the validation and test dataloaders.
-    Metrics are logged with `val_best_rerun/` and `test_best_rerun/` prefixes to ensure
-    metrics reflect the best model state rather than the final epoch.
+    best model weights, and runs validation plus configured test inference
+    protocols. Metrics are logged with `val_best_rerun/`, `test_inference/*/`,
+    and the backward-compatible `test_best_rerun/` batched-test alias.
 
     Parameters
     ----------
@@ -384,22 +785,61 @@ def rerun_best_model_checkpoint(
             if isinstance(lgr, WandbLogger):
                 lgr.log_metrics(logged)
 
-    log.info("Re-testing best model checkpoint on test set!")
-    test_loader = datamodule.test_dataloader()
-    with track_phase("test_best_rerun"):
-        results = checkpoint_trainer.test(
-            model=checkpoint_model,
-            dataloaders=test_loader,
+    protocols = _resolve_test_inference_protocols(cfg)
+    is_cluster_datamodule = _validate_test_inference_protocols(
+        protocols,
+        datamodule,
+    )
+
+    log.info(
+        "Re-testing best model checkpoint on test set with protocols: "
+        f"{protocols}"
+    )
+    for protocol in protocols:
+        if protocol == "batched":
+            metrics = _run_lightning_test_protocol(
+                checkpoint_trainer=checkpoint_trainer,
+                checkpoint_model=checkpoint_model,
+                dataloader=datamodule.test_dataloader(),
+                phase="test_inference_batched",
+            )
+        elif protocol == "full_graph":
+            metrics = _run_lightning_test_protocol(
+                checkpoint_trainer=checkpoint_trainer,
+                checkpoint_model=checkpoint_model,
+                dataloader=datamodule.inference_dataloader(
+                    split="test",
+                    q=datamodule.num_parts,
+                    shuffle=False,
+                    cover_parts="all",
+                ),
+                phase="test_inference_full_graph",
+            )
+        elif protocol == "ensemble":
+            with track_phase("test_inference_ensemble"):
+                metrics = _run_ensemble_test_inference(
+                    checkpoint_model=checkpoint_model,
+                    cfg=cfg,
+                    datamodule=datamodule,
+                    device=device,
+                )
+        else:  # pragma: no cover - validated in _resolve_test_inference_protocols.
+            raise ValueError(f"Unsupported test inference protocol {protocol}")
+
+        _log_prefixed_metrics(
+            prefix=f"test_inference/{protocol}",
+            metrics=metrics,
+            logger=logger,
         )
-    if results:
-        logged = {}
-        for k, v in results[0].items():
-            suffix = k.split("/", 1)[1] if "/" in k else k
-            logged[f"test_best_rerun/{suffix}"] = v
-        log.info(logged)
-        for lgr in logger:
-            if isinstance(lgr, WandbLogger):
-                lgr.log_metrics(logged)
+        if protocol == "batched":
+            _log_prefixed_metrics(
+                prefix="test_best_rerun",
+                metrics=metrics,
+                logger=logger,
+            )
+
+    if not is_cluster_datamodule:
+        log.info("Completed default batched test inference for datamodule.")
 
     if (
         cfg.get("delete_checkpoint_after_test", False)

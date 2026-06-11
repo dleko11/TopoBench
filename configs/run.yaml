@@ -43,6 +43,13 @@ train: True
 test: True
 delete_checkpoint_after_test: False
 
+test_inference:
+  protocols: [batched]
+  ensemble_runs: 10
+  ensemble_average: logits
+  ensemble_shuffle: true
+  ensemble_seed: ${seed}
+
 # simply provide checkpoint path to resume training
 ckpt_path: null
 
