@@ -30,14 +30,11 @@ script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
 log_group="${script_name}_sweep"
 
 DATASET_MODES=(
-    "full::graph/questions"
     "partitioning::graph/questions_for_partitioning"
 )
 
 MODEL_SPECS=(
-    "cwn::cell/cwn::cell"
     "scn::simplicial/scn::simplicial"
-    "sccnn::simplicial/sccnn_custom::simplicial"
 )
 
 source "$SCRIPT_DIR/common.sh"

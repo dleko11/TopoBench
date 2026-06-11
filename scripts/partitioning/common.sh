@@ -144,7 +144,8 @@ transform_alias() {
         graph) echo "graph" ;;
         hypergraph) echo "khop_large_scale" ;;
         cell) echo "cycle_selective" ;;
-        simplicial) echo "clique_selective" ;;
+        # simplicial) echo "clique_selective" ;;
+        simplicial) echo "clique" ;;
         *)
             echo "ERROR: unknown transform kind: $1" >&2
             exit 1
@@ -172,7 +173,8 @@ append_transform_args() {
         simplicial)
             cmd+=(
                 "transforms=liftings/graph2simplicial_default"
-                "transforms/liftings/graph2simplicial@transforms.graph2simplicial_lifting=clique_selective"
+                # "transforms/liftings/graph2simplicial@transforms.graph2simplicial_lifting=clique_selective"
+                "transforms/liftings/graph2simplicial@transforms.graph2simplicial_lifting=clique"
             )
             ;;
         *)
