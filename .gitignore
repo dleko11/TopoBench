@@ -209,3 +209,5 @@ result_BREC/
 # test temporary
 .test_tmp/
 uv.lock
+
+/scripts/partitioning_test/log*
