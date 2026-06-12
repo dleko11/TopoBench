@@ -14,17 +14,22 @@ export MKL_NUM_THREADS=$num_threads
 #PYPATH=/home/lukab/miniconda3/envs/mace_env3/bin/
 
 python3 -m topobench \
-    model=graph/gcn_cluster \
+    --multirun \
+    model=graph/gcn_cluster,hypergraph/edgnn,hypergraph/unignn2,cell/cwn,cell/cccn,simplicial/scn,simplicial/sccnn_custom \
     dataset=graph/tolokers_for_partitioning_test \
+    dataset.loader.parameters.stream.q=4,8,16,32,64
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
     model.feature_encoder.out_channels=128 \
     model.feature_encoder.proj_dropout=0 \
     dataset.dataloader_params.batch_size=1 \
-    dataset.split_params.data_seed=0 \
-    trainer.max_epochs=1500 \
-    trainer.min_epochs=50 \
+    dataset.split_params.data_seed=0,100,200,300,400 \
+    trainer.max_epochs=130 \
+    trainer.min_epochs=1 \
     trainer.check_val_every_n_epoch=1 \
-    callbacks.early_stopping.patience=130 \
-    logger=csv \
+    callbacks.early_stopping.patience=10 \
+    logger=wandb \
+    logger.wandb.entity=topobench \
+    logger.wandb.project=tolokers_random_partitioning \
     trainer=gpu \
+    +trainer.enable_progress_bar=false
