@@ -17,6 +17,7 @@ python3 -m topobench \
     --multirun \
     model=graph/gcn,hypergraph/edgnn,hypergraph/unignn2,cell/cwn,cell/cccn,simplicial/scn,simplicial/sccnn_custom \
     dataset=graph/tolokers_for_partitioning_test \
+    dataset.loader.parameters.cluster.partition_method=metis \
     dataset.loader.parameters.stream.q=4,8,16,32,64 \
     optimizer.parameters.lr=0.001 \
     optimizer.parameters.weight_decay=0 \
@@ -30,6 +31,6 @@ python3 -m topobench \
     callbacks.early_stopping.patience=10 \
     logger=wandb \
     +logger.wandb.entity=topobench \
-    logger.wandb.project=tolokers_random_partitioning \
+    logger.wandb.project=tolokers_metis_partitioning \
     trainer=gpu \
     +trainer.enable_progress_bar=false
