@@ -353,11 +353,23 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             A handle with root/processed/memmap paths, partition metadata, and
             file locations for all relevant arrays.
         """
-        # Build a stable hash from the full partition configuration.
+        # Only stream settings that change persisted partition artifacts belong
+        # in the partition cache key. Batch sizing (q/q_val/q_test), worker
+        # counts, pinning, and cache options are consumed by the datamodule and
+        # should reuse the same partition.
+        stream_artifact_params = {
+            "precompute_split_parts": bool(
+                stream_params.get("precompute_split_parts", True)
+            )
+        }
+
+        # Build a stable hash from the persisted partition artifact config.
         cluster_config = {
             "split_params": ensure_serializable(split_params),
             "cluster_params": ensure_serializable(cluster_params),
-            "stream_params": ensure_serializable(stream_params),
+            "stream_artifact_params": ensure_serializable(
+                stream_artifact_params
+            ),
             "dtype_policy": dtype_policy,
         }
         config_hash = make_hash(cluster_config)
@@ -397,9 +409,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             logging.info(
                 f"[pack_global_partition] Building new partition (hash={config_hash}): {part_dir}"
             )
-            _ = self.load_dataset_splits(split_params)
-
-            full = getattr(self.dataset, "data", None)
+            ds_train, _, _ = self.load_dataset_splits(split_params)
+            full = ds_train.data_lst[0]
 
             # num_nodes
             if getattr(full, "num_nodes", None) is not None:
@@ -413,20 +424,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             else:
                 raise ValueError("Cannot infer num_nodes from full graph.")
 
-            if getattr(full, "train_mask", None) is None:
-                ds_train, ds_val, ds_test = self.load_dataset_splits(
-                    split_params
-                )
-                full = ds_train.data_lst[0]
-                full.train_mask = to_bool_mask(
-                    getattr(full, "train_mask", None), N
-                )
-                full.val_mask = to_bool_mask(
-                    getattr(full, "val_mask", None), N
-                )
-                full.test_mask = to_bool_mask(
-                    getattr(full, "test_mask", None), N
-                )
+            full.train_mask = to_bool_mask(
+                getattr(full, "train_mask", None), N
+            )
+            full.val_mask = to_bool_mask(getattr(full, "val_mask", None), N)
+            full.test_mask = to_bool_mask(getattr(full, "test_mask", None), N)
 
             # Checks: we require a single full graph with masks.
             if getattr(full, "edge_index", None) is None:
@@ -445,6 +447,10 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 cluster_params.get("keep_inter_cluster_edges", False)
             )
             sparse_format = str(cluster_params.get("sparse_format", "csr"))
+            partition_method = str(
+                cluster_params.get("partition_method", "metis")
+            )
+            partition_seed = cluster_params.get("partition_seed")
 
             # Build the ClusterOnDisk dataset inside the hash-keyed partition dir.
             # The filelock above ensures only one process runs this block; others
@@ -459,6 +465,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 backend="sqlite",
                 transform=None,
                 pre_filter=None,
+                partition_method=partition_method,
+                partition_seed=partition_seed,
             )
             # Touch to trigger process() if not already done.
             _ = len(ds)
@@ -485,7 +493,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             np.save(osp.join(mm_dir, "test_mask_perm.npy"), test_mask_perm)
 
             # Precompute which parts contain which split nodes.
-            if bool(stream_params.get("precompute_split_parts", True)):
+            if stream_artifact_params["precompute_split_parts"]:
                 partptr = np.load(osp.join(mm_dir, "partptr.npy"))
 
                 def _parts_with(mask_perm: np.ndarray) -> np.ndarray:
@@ -510,10 +518,13 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             full_N = int(getattr(full, "num_nodes", train_mask_perm.shape[0]))
             meta = {
                 "num_parts": ds.num_parts,
+                "partition_method": ds.partition_method,
+                "partition_seed": partition_seed,
                 "recursive": ds.recursive,
                 "keep_inter_cluster_edges": ds.keep_inter_cluster_edges,
                 "sparse_format": ds.sparse_format,
                 "dtype_policy": dtype_policy,
+                "stream_artifact_params": stream_artifact_params,
                 "has_x": getattr(full, "x", None) is not None,
                 "has_y": getattr(full, "y", None) is not None,
                 "has_edge_attr": getattr(full, "edge_attr", None) is not None,
@@ -528,7 +539,10 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 "processed_dir": ds.processed_dir,
                 "memmap_dir": mm_dir,
                 "num_parts": int(ds.num_parts),
+                "partition_method": str(ds.partition_method),
+                "partition_seed": partition_seed,
                 "sparse_format": str(ds.sparse_format),
+                "stream_artifact_params": stream_artifact_params,
                 "has_x": bool(meta["has_x"]),
                 "has_y": bool(meta["has_y"]),
                 "has_edge_attr": bool(meta["has_edge_attr"]),
