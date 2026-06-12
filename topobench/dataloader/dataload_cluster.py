@@ -545,6 +545,7 @@ class ClusterGCNDataModule(LightningDataModule):
         self,
         *,
         data_handle: dict[str, object],
+        train_shuffle: bool = True,
         q: int = 10,
         q_val: int | None = None,
         q_test: int | None = None,
@@ -567,6 +568,7 @@ class ClusterGCNDataModule(LightningDataModule):
         super().__init__()
 
         self.handle = data_handle
+        self.train_shuffle = train_shuffle
         self._num_parts = int(self.handle.get("num_parts"))
 
         self.q = int(q)
@@ -879,7 +881,7 @@ class ClusterGCNDataModule(LightningDataModule):
         DataLoader
             Training dataloader.
         """
-        return self._build_loader(split="train", shuffle=True)
+        return self._build_loader(split="train", shuffle=self.train_shuffle) #, shuffle=True)
 
     def val_dataloader(self) -> DataLoader:
         """Return dataloader for the validation split.

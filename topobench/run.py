@@ -169,6 +169,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             # Build streaming loaders
             datamodule = ClusterGCNDataModule(
                 data_handle=handle,
+                train_shuffle=stream_cfg.get("train_shuffle", True),
                 q=stream_cfg.get("q", 1),
                 q_test=stream_cfg.get("q_test", None),
                 q_val=stream_cfg.get("q_val", None),
