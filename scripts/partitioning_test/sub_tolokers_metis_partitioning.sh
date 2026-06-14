@@ -15,7 +15,7 @@ export MKL_NUM_THREADS=$num_threads
 
 python3 -m topobench \
     --multirun \
-    model=graph/gcn,hypergraph/edgnn,hypergraph/unignn2,cell/cwn,cell/cccn,simplicial/scn,simplicial/sccnn_custom \
+    model=simplicial/sccnn_custom \
     dataset=graph/tolokers_for_partitioning_test \
     dataset.loader.parameters.cluster.partition_method=metis \
     dataset.loader.parameters.stream.q=4,8,16,32,64 \
@@ -31,6 +31,6 @@ python3 -m topobench \
     callbacks.early_stopping.patience=10 \
     logger=wandb \
     +logger.wandb.entity=topobench \
-    logger.wandb.project=tolokers_metis_partitioning \
+    logger.wandb.project=tolokers_metis_partitioning_sccnn \
     trainer=gpu \
     +trainer.enable_progress_bar=false
