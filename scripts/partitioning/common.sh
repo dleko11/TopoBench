@@ -115,6 +115,14 @@ except Exception:
 ")
 
     read -r JOBS_PER_GPU gpu_ids <<< "$gpu_info"
+    if [[ -n "${JOBS_PER_GPU_OVERRIDE:-}" ]]; then
+        if [[ "$JOBS_PER_GPU_OVERRIDE" =~ ^[1-9][0-9]*$ ]]; then
+            JOBS_PER_GPU="$JOBS_PER_GPU_OVERRIDE"
+        else
+            echo "ERROR: JOBS_PER_GPU_OVERRIDE must be a positive integer, got '$JOBS_PER_GPU_OVERRIDE'" >&2
+            exit 1
+        fi
+    fi
     read -ra physical_gpus <<< "$gpu_ids"
 
     if [[ "${#physical_gpus[@]}" -eq 0 || "$JOBS_PER_GPU" -eq 0 ]]; then
