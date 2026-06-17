@@ -157,19 +157,38 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 else None
             )
             stream_cfg = cfg.dataset.loader.parameters.get("stream", {})
+            q = int(stream_cfg.get("q", 1))
+            q_val = stream_cfg.get("q_val", None)
+            if q_val is not None:
+                resolved_q_val = int(q_val)
+            else:
+                val_batches = stream_cfg.get("val_batches", 5)
+                if val_batches is None:
+                    resolved_q_val = q
+                else:
+                    val_batches = int(val_batches)
+                    num_parts = int(handle.get("num_parts"))
+                    resolved_q_val = max(
+                        q, (num_parts + val_batches - 1) // val_batches
+                    )
+            eval_cover_strategy = cfg.get("eval", {}).get(
+                "cover_strategy", "all_parts"
+            )
             val_cache_fingerprint = make_hash(
                 {
                     "partition_hash": handle.get("config_hash", None),
                     "transform": transform_cfg_container,
-                    "q_val": stream_cfg.get("q_val", None),
+                    "q_val": resolved_q_val,
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
+                    "seed": cfg.get("seed", 42),
+                    "eval_cover_strategy": eval_cover_strategy,
                 }
             )
 
             # Build streaming loaders
             datamodule = ClusterGCNDataModule(
                 data_handle=handle,
-                q=stream_cfg.get("q", 1),
+                q=q,
                 q_test=stream_cfg.get("q_test", None),
                 q_val=stream_cfg.get("q_val", None),
                 val_batches=stream_cfg.get("val_batches", 5),
@@ -178,9 +197,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 cache_num_workers=stream_cfg.get("cache_num_workers", None),
                 pin_memory=stream_cfg.get("pin_memory", False),
                 with_edge_attr=stream_cfg.get("with_edge_attr", False),
-                eval_cover_strategy=cfg.get("eval", {}).get(
-                    "cover_strategy", "all_parts"
-                ),
+                eval_cover_strategy=eval_cover_strategy,
                 seed=cfg.get("seed", 42),
                 transform_config=transform_cfg_container,
                 cache_val=True,

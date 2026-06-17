@@ -337,8 +337,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             `num_parts`, `recursive`, `keep_inter_cluster_edges`,
             `sparse_format`, etc.
         stream_params : dict
-            Parameters for downstream streaming, including
-            `precompute_split_parts` to speed up split-aware sampling.
+            Parameters for downstream streaming. These do not affect the
+            global partition identity.
         dtype_policy : {"preserve", "float32"}, optional
             Policy for persisting feature/edge_attr dtypes. Recorded in meta
             for downstream consumers.
@@ -353,11 +353,12 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             A handle with root/processed/memmap paths, partition metadata, and
             file locations for all relevant arrays.
         """
-        # Build a stable hash from the full partition configuration.
+        # Build a stable hash from only the options that define the persisted
+        # global partition. Loader-only options such as q/num_workers must not
+        # create new part_* directories.
         cluster_config = {
             "split_params": ensure_serializable(split_params),
             "cluster_params": ensure_serializable(cluster_params),
-            "stream_params": ensure_serializable(stream_params),
             "dtype_policy": dtype_policy,
         }
         config_hash = make_hash(cluster_config)
@@ -484,27 +485,27 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             np.save(osp.join(mm_dir, "val_mask_perm.npy"), val_mask_perm)
             np.save(osp.join(mm_dir, "test_mask_perm.npy"), test_mask_perm)
 
-            # Precompute which parts contain which split nodes.
-            if bool(stream_params.get("precompute_split_parts", True)):
-                partptr = np.load(osp.join(mm_dir, "partptr.npy"))
+            # Precompute which parts contain which split nodes. These are cheap
+            # sidecars of the partition and are independent of loader q.
+            partptr = np.load(osp.join(mm_dir, "partptr.npy"))
 
-                def _parts_with(mask_perm: np.ndarray) -> np.ndarray:
-                    pos = np.flatnonzero(mask_perm)
-                    part_ids = np.searchsorted(partptr, pos, side="right") - 1
-                    return np.unique(part_ids.astype(np.int64))
+            def _parts_with(mask_perm: np.ndarray) -> np.ndarray:
+                pos = np.flatnonzero(mask_perm)
+                part_ids = np.searchsorted(partptr, pos, side="right") - 1
+                return np.unique(part_ids.astype(np.int64))
 
-                np.save(
-                    osp.join(mm_dir, "parts_with_train.npy"),
-                    _parts_with(train_mask_perm),
-                )
-                np.save(
-                    osp.join(mm_dir, "parts_with_val.npy"),
-                    _parts_with(val_mask_perm),
-                )
-                np.save(
-                    osp.join(mm_dir, "parts_with_test.npy"),
-                    _parts_with(test_mask_perm),
-                )
+            np.save(
+                osp.join(mm_dir, "parts_with_train.npy"),
+                _parts_with(train_mask_perm),
+            )
+            np.save(
+                osp.join(mm_dir, "parts_with_val.npy"),
+                _parts_with(val_mask_perm),
+            )
+            np.save(
+                osp.join(mm_dir, "parts_with_test.npy"),
+                _parts_with(test_mask_perm),
+            )
 
             # Record meta.
             full_N = int(getattr(full, "num_nodes", train_mask_perm.shape[0]))
