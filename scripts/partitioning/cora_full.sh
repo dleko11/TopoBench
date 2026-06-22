@@ -34,7 +34,7 @@ DATASET_MODES=(
 MODEL_SPECS=(
     "gcn::graph/gcn::graph"
     "edgnn::hypergraph/edgnn::hypergraph"
-    "unignn2::hypergraph/unignn2::hypergraph"
+    "unignn::hypergraph/unignn::hypergraph"
     "cwn::cell/cwn::cell"
     "cell_topotune::cell/topotune::cell"
     "scn::simplicial/scn::simplicial"

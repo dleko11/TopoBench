@@ -15,13 +15,12 @@ STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
 CHECK_VAL_EVERY_N_EPOCH="${CHECK_VAL_EVERY_N_EPOCH:-5}"
-EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-20}"
+EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-5}"
 
 LR_SPACE="${LR_SPACE:-tag(log, interval(0.00001,0.01))}"
 WEIGHT_DECAY_SPACE="${WEIGHT_DECAY_SPACE:-choice(0,1e-5,1e-4,1e-3)}"
 OUT_CHANNELS_SPACE="${OUT_CHANNELS_SPACE:-choice(32,64,128)}"
 PROJ_DROPOUT_SPACE="${PROJ_DROPOUT_SPACE:-choice(0.0,0.1,0.2,0.3)}"
-TUNE_DEPTH="${TUNE_DEPTH:-false}"
 
 # Optional comma-separated aliases, e.g.
 # DATASET_FILTER=questions,tolokers MODEL_FILTER=gcn,scn
@@ -48,8 +47,11 @@ DATASET_SPECS=(
 MODEL_SPECS=(
     "gcn::graph/gcn::graph"
     "edgnn::hypergraph/edgnn::hypergraph"
+    "unignn::hypergraph/unignn::hypergraph"
     "cwn::cell/cwn::cell"
+    "cell_topotune::cell/topotune::cell"
     "scn::simplicial/scn::simplicial"
+    "sccnn::simplicial/sccnn_custom::simplicial"
 )
 
 source "$SCRIPT_DIR/common.sh"
@@ -83,25 +85,20 @@ append_model_search_args() {
     case "$model_alias" in
         gcn)
             add_sweeper_param "model.backbone.dropout" "choice(0.0,0.2,0.5)"
-            if [[ "$TUNE_DEPTH" == "true" ]]; then
-                add_sweeper_param "model.backbone.num_layers" "choice(1,2,3)"
-            fi
             ;;
         edgnn)
             add_sweeper_param "model.backbone.dropout" "choice(0.0,0.2,0.5)"
-            if [[ "$TUNE_DEPTH" == "true" ]]; then
-                add_sweeper_param "model.backbone.All_num_layers" "choice(1,2)"
-            fi
+            ;;
+        unignn)
             ;;
         cwn)
-            if [[ "$TUNE_DEPTH" == "true" ]]; then
-                add_sweeper_param "model.backbone.n_layers" "choice(2,3,4)"
-            fi
+            ;;
+        cell_topotune)
+            add_sweeper_param "model.backbone.GNN.dropout" "choice(0.0,0.2,0.5)"
             ;;
         scn)
-            if [[ "$TUNE_DEPTH" == "true" ]]; then
-                add_sweeper_param "model.backbone.n_layers" "choice(1,2,3)"
-            fi
+            ;;
+        sccnn)
             ;;
         *)
             echo "ERROR: unknown model alias: $model_alias" >&2
@@ -172,7 +169,6 @@ run_optuna_suite() {
     echo "Common weight decay space: $WEIGHT_DECAY_SPACE"
     echo "Common out_channels space: $OUT_CHANNELS_SPACE"
     echo "Common proj_dropout space: $PROJ_DROPOUT_SPACE"
-    echo "Tune depth: $TUNE_DEPTH"
     echo "Optuna storage: $OPTUNA_STORAGE"
 
     local dataset_spec model_spec
@@ -252,6 +248,7 @@ run_optuna_suite() {
                 "trainer.min_epochs=${MIN_EPOCHS}"
                 "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
                 "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
+                "+trainer.enable_progress_bar=false"
                 "test=false"
                 "extras.print_config=false"
                 "extras.enforce_tags=false"
