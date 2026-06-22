@@ -4,6 +4,7 @@ SELECTED_GPUS="${SELECTED_GPUS:-0,1,2,3,4,5,6,7}"
 RESUME="${RESUME:-true}"
 DRY_RUN="${DRY_RUN:-false}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-1}"
+KEEP_SUCCESS_LOGS="${KEEP_SUCCESS_LOGS:-true}"
 wandb_entity="${wandb_entity:-topobench-scalability}"
 
 N_TRIALS="${N_TRIALS:-50}"
@@ -29,6 +30,7 @@ MODEL_FILTER="${MODEL_FILTER:-}"
 STUDY_PREFIX="${STUDY_PREFIX:-partitioning_optuna}"
 WANDB_PROJECT_PREFIX="${WANDB_PROJECT_PREFIX:-partitioning_optuna}"
 WANDB_PROJECT_SUFFIX="${WANDB_PROJECT_SUFFIX:-}"
+OPTUNA_STORAGE="${OPTUNA_STORAGE:-null}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
@@ -171,6 +173,7 @@ run_optuna_suite() {
     echo "Common out_channels space: $OUT_CHANNELS_SPACE"
     echo "Common proj_dropout space: $PROJ_DROPOUT_SPACE"
     echo "Tune depth: $TUNE_DEPTH"
+    echo "Optuna storage: $OPTUNA_STORAGE"
 
     local dataset_spec model_spec
     local dataset_alias dataset_config num_parts_space q_space q_val
@@ -216,6 +219,8 @@ run_optuna_suite() {
 
             current_gpu="${gpus[$assigned_slot]}"
             local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}"
+            local optuna_storage="$OPTUNA_STORAGE"
+            optuna_storage="${optuna_storage//\{study_name\}/$study_name}"
             sweeper_params=()
             add_sweeper_param "optimizer.parameters.lr" "$LR_SPACE"
             add_sweeper_param "optimizer.parameters.weight_decay" "$WEIGHT_DECAY_SPACE"
@@ -235,7 +240,7 @@ run_optuna_suite() {
                 "model=${model_config}"
                 "trainer=${TRAINER}"
                 "logger=${LOGGER}"
-                "hydra.sweeper.storage=sqlite:///logs/optuna/${study_name}.db"
+                "hydra.sweeper.storage=${optuna_storage}"
                 "hydra.sweeper.study_name=${study_name}"
                 "hydra.sweeper.n_trials=${N_TRIALS}"
                 "hydra.sweeper.n_jobs=1"

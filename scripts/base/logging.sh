@@ -46,7 +46,12 @@ run_and_log() {
             flock -x 200
             echo "$(date): [SUCCESS] ${run_name}" >> "$success_log"
         ) 200> "${specific_log_dir}/.success.lock"
-        rm -f "$tmp_stdout" "$tmp_stderr"
+        if [[ "${KEEP_SUCCESS_LOGS:-false}" == "true" ]]; then
+            mv "$tmp_stdout" "$stdout_log"
+            mv "$tmp_stderr" "$stderr_log"
+        else
+            rm -f "$tmp_stdout" "$tmp_stderr"
+        fi
         return 0
     fi
 
