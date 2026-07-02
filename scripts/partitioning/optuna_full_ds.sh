@@ -37,8 +37,8 @@ log_group="${script_name}_sweep"
 
 DATASET_SPECS=(
     "questions::graph/questions"
-    "coauthor_physics::graph/coauthor_physics"
     "cora_full::graph/cocitation_cora_full"
+    "amazon_ratings::graph/amazon_ratings"
 )
 
 MODEL_SPECS=(
