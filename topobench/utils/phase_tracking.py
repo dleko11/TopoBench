@@ -42,6 +42,9 @@ PHASE_IDS: dict[str, int] = {
     "checkpoint_load": 200,
     "val_best_rerun": 210,
     "test_best_rerun": 220,
+    "test_inference_batched": 230,
+    "test_inference_full_graph": 240,
+    "test_inference_ensemble": 250,
     "val_cache_build": 300,
 }
 

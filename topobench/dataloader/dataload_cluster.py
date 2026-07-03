@@ -667,6 +667,37 @@ class ClusterGCNDataModule(LightningDataModule):
         # Fallback: if parts_with_* is missing, use all parts.
         return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
 
+    def _part_ids_for_coverage(
+        self,
+        *,
+        split: str,
+        cover_parts: str,
+    ) -> Iterable[int]:
+        """Return part IDs for an inference coverage mode.
+
+        Parameters
+        ----------
+        split : str
+            Dataset split whose split-aware part list may be used.
+        cover_parts : {"split", "all"}
+            ``"split"`` uses parts containing supervised nodes for the split.
+            ``"all"`` uses every partition part.
+
+        Returns
+        -------
+        Iterable of int
+            Cluster part IDs to iterate.
+        """
+        cover_parts = str(cover_parts).lower()
+        if cover_parts == "split":
+            return self._part_ids_for_split(split)
+        if cover_parts == "all":
+            return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
+        raise ValueError(
+            "cover_parts must be either 'split' or 'all', "
+            f"got {cover_parts!r}."
+        )
+
     def _q_for_split(self, split: str) -> int:
         """Return the batch size (number of clusters) for a given split.
 
@@ -687,7 +718,26 @@ class ClusterGCNDataModule(LightningDataModule):
             return self.q_test
         return self.q
 
-    def _build_loader(self, *, split: str, shuffle: bool) -> DataLoader:
+    @property
+    def num_parts(self) -> int:
+        """Return the number of partition parts.
+
+        Returns
+        -------
+        int
+            Number of partition parts in the global partition.
+        """
+        return self._num_parts
+
+    def _build_loader(
+        self,
+        *,
+        split: str,
+        shuffle: bool,
+        q: int | None = None,
+        seed: int | None = None,
+        cover_parts: str = "split",
+    ) -> DataLoader:
         """Build and return a DataLoader for a given split.
 
         Parameters
@@ -696,14 +746,26 @@ class ClusterGCNDataModule(LightningDataModule):
             The dataset split ("train", "val", "test").
         shuffle : bool
             Whether to shuffle the dataset parts.
+        q : int or None, optional
+            Number of clusters per mini-batch. Defaults to the split setting.
+        seed : int or None, optional
+            Seed used when ``shuffle`` is True. Defaults to the datamodule seed.
+        cover_parts : {"split", "all"}, optional
+            Part coverage mode. Default is ``"split"``.
 
         Returns
         -------
         DataLoader
             DataLoader for the split.
         """
-        part_ids = self._part_ids_for_split(split)
+        part_ids = self._part_ids_for_coverage(
+            split=split,
+            cover_parts=cover_parts,
+        )
         part_ds = _PartIdListDataset(part_ids)
+        batch_size = self._q_for_split(split) if q is None else int(q)
+        if batch_size <= 0:
+            raise ValueError(f"q must be positive, got {batch_size}.")
 
         collate = BlockCSRBatchCollator(
             self.ds_adapter,
@@ -714,11 +776,11 @@ class ClusterGCNDataModule(LightningDataModule):
         )
 
         g = torch.Generator()
-        g.manual_seed(self.seed)
+        g.manual_seed(self.seed if seed is None else int(seed))
 
         return DataLoader(
             part_ds,
-            batch_size=self._q_for_split(split),
+            batch_size=batch_size,
             shuffle=shuffle,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory,
@@ -726,6 +788,44 @@ class ClusterGCNDataModule(LightningDataModule):
             collate_fn=collate,
             generator=g if shuffle else None,
             drop_last=False,
+        )
+
+    def inference_dataloader(
+        self,
+        *,
+        split: str = "test",
+        q: int | None = None,
+        shuffle: bool = False,
+        seed: int | None = None,
+        cover_parts: str = "split",
+    ) -> DataLoader:
+        """Build an inference dataloader with explicit grouping controls.
+
+        Parameters
+        ----------
+        split : str, optional
+            Dataset split to evaluate. Default is ``"test"``.
+        q : int or None, optional
+            Number of clusters per mini-batch. Defaults to the split setting.
+        shuffle : bool, optional
+            Whether to shuffle part order. Default is False.
+        seed : int or None, optional
+            Seed used when shuffling. Defaults to the datamodule seed.
+        cover_parts : {"split", "all"}, optional
+            Whether to cover split-supervised parts or all parts. Default is
+            ``"split"``.
+
+        Returns
+        -------
+        DataLoader
+            Inference dataloader.
+        """
+        return self._build_loader(
+            split=split,
+            shuffle=shuffle,
+            q=q,
+            seed=seed,
+            cover_parts=cover_parts,
         )
 
     def setup(self, stage: str | None = None) -> None:
