@@ -11,6 +11,7 @@ N_TRIALS="${N_TRIALS:-50}"
 TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
 STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
+CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-$STREAM_NUM_WORKERS}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -170,6 +171,8 @@ run_optuna_suite() {
     echo "Common weight decay space: $WEIGHT_DECAY_SPACE"
     echo "Common out_channels space: $OUT_CHANNELS_SPACE"
     echo "Common proj_dropout space: $PROJ_DROPOUT_SPACE"
+    echo "Stream num_workers: $STREAM_NUM_WORKERS"
+    echo "Validation cache num_workers: $CACHE_NUM_WORKERS"
     echo "Optuna storage: $OPTUNA_STORAGE"
 
     local dataset_spec model_spec
@@ -244,6 +247,7 @@ run_optuna_suite() {
                 "+hydra.sweeper.params=${sweeper_params_override}"
                 "++dataset.loader.parameters.stream.q_val=${q_val}"
                 "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
+                "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
