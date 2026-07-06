@@ -41,8 +41,8 @@ DATASET_SPECS=(
     "coauthor_physics::graph/coauthor_physics_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::50"
     "cora_full::graph/cocitation_cora_full_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
     "amazon_ratings::graph/amazon_ratings_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
-    "reddit::graph/reddit_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::50"
-    "ogbn_products::graph/ogbn_products_for_partitioning::choice(1000,1500,2000,3000)::choice(20,30,40,50)::50"
+    "reddit::graph/reddit_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::20"
+    "ogbn_products::graph/ogbn_products_for_partitioning::choice(1000,1500,2000,3000)::choice(20,30,40,50)::20"
 )
 
 MODEL_SPECS=(
