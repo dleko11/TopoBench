@@ -14,7 +14,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 
 RUN_RE = re.compile(
-    r"cora_(?P<label>.+)_q(?P<q>\d+)_seed(?P<seed>\d+)_"
+    r"(?P<dataset>.+?)_(?P<label>.+)_q(?P<q>\d+)_seed(?P<seed>\d+)_"
     r"(?P<ts>\d{8}_\d{6})"
 )
 MIN_PLOT_EPOCH = 1

@@ -1,4 +1,4 @@
-"""Run the Cora simplicial structural coverage experiment."""
+"""Run structural coverage experiments for partitioned TopoBench datasets."""
 
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ log = RankedLogger(__name__, rank_zero_only=True)
 DEFAULT_OVERRIDES = [
     "dataset=graph/cocitation_cora_for_partitioning",
     "model=simplicial/scn",
-    "transforms=liftings/graph2simplicial_default",
     "trainer=cpu",
     "logger=csv",
     "test=false",
@@ -80,11 +79,23 @@ def _has_override(argv: list[str], key: str) -> bool:
     return any(item.startswith(prefixes) for item in argv)
 
 
+def _default_transforms_for_model(model: str) -> str:
+    """Return the default graph lifting config for a model config path."""
+    if model.startswith("cell/"):
+        return "liftings/graph2cell_default"
+    if model.startswith("hypergraph/"):
+        return "liftings/graph2hypergraph_default"
+    return "liftings/graph2simplicial_default"
+
+
 def _profile_overrides(argv: list[str]) -> list[str]:
     """Return default overrides that are valid for the selected profile."""
+    model = _override_value(argv, "model") or "simplicial/scn"
     transforms = _override_value(argv, "transforms")
+    overrides = []
     if transforms is None:
-        transforms = "liftings/graph2simplicial_default"
+        transforms = _default_transforms_for_model(model)
+        overrides.append(f"transforms={transforms}")
 
     if (
         "graph2simplicial" in transforms
@@ -93,18 +104,18 @@ def _profile_overrides(argv: list[str]) -> list[str]:
             "transforms.graph2simplicial_lifting.complex_dim",
         )
     ):
-        return ["transforms.graph2simplicial_lifting.complex_dim=2"]
-    return []
+        overrides.append("transforms.graph2simplicial_lifting.complex_dim=2")
+    return overrides
 
 
 def compose_config(argv: list[str] | None = None) -> DictConfig:
-    """Compose the experiment config with Cora defaults and CLI overrides."""
+    """Compose the experiment config with defaults and CLI overrides."""
     argv = list(sys.argv[1:] if argv is None else argv)
     config_dir = Path(__file__).resolve().parents[2] / "configs"
     with hydra.initialize_config_dir(
         version_base="1.3",
         config_dir=str(config_dir),
-        job_name="structural_coverage_cora_simplicial",
+        job_name="structural_coverage",
     ):
         return hydra.compose(
             config_name="run.yaml",
@@ -128,6 +139,19 @@ def _sanitize_run_label(value: Any) -> str:
     """Return a filesystem-friendly run label fragment."""
     text = str(value or "unknown")
     return "".join(ch if ch.isalnum() else "_" for ch in text).strip("_")
+
+
+def _dataset_label(cfg: DictConfig) -> str:
+    """Return a compact dataset label for run directory names."""
+    data_name = OmegaConf.select(
+        cfg,
+        "dataset.loader.parameters.data_name",
+        default=None,
+    )
+    if data_name:
+        return _sanitize_run_label(data_name).lower()
+    dataset_config = str(OmegaConf.select(cfg, "dataset", default="dataset"))
+    return _sanitize_run_label(dataset_config).lower()
 
 
 def infer_structure_family(cfg: DictConfig) -> str:
@@ -179,9 +203,10 @@ def _result_dir(cfg: DictConfig) -> Path:
     seed = int(cfg.get("seed", 42))
     family = infer_structure_family(cfg)
     model_name = cfg.get("model", {}).get("model_name", "model")
+    dataset = _dataset_label(cfg)
     label = _sanitize_run_label(f"{family}_{model_name}")
     timestamp = time.strftime("%Y%m%d_%H%M%S")
-    run_id = f"cora_{label}_q{q}_seed{seed}_{timestamp}"
+    run_id = f"{dataset}_{label}_q{q}_seed{seed}_{timestamp}"
     return Path(cfg.coverage.results_root).resolve() / run_id
 
 
