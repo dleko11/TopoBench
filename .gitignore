@@ -198,6 +198,7 @@ notebooks/tmp
 scripts/hopse_plotting/csvs
 scripts/hopse_plotting/plots
 scripts/hopse_plotting/tables
+scripts/structural_coverage/results/
 
 # wandb
 wandb/
