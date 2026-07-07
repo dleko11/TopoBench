@@ -187,6 +187,14 @@ def structure_params_for_family(
                 default=None,
             )
         }
+    if structure_family == "cell_simple_cycles":
+        return {
+            "max_support_nodes": OmegaConf.select(
+                cfg,
+                "coverage.max_support_nodes",
+                default=8,
+            )
+        }
     if structure_family == "hypergraph_khop":
         return {
             "k_value": OmegaConf.select(

@@ -1,4 +1,4 @@
-"""Structural coverage helpers for partitioned simplicial experiments."""
+"""Structural coverage helpers for partitioned TopoBench experiments."""
 
 from __future__ import annotations
 
@@ -29,6 +29,7 @@ DEFAULT_STRUCTURE_FAMILY = "simplicial_clique"
 SUPPORTED_STRUCTURE_FAMILIES = (
     "simplicial_clique",
     "cell_cycle",
+    "cell_simple_cycles",
     "hypergraph_khop",
     "hypergraph_incidence",
 )
@@ -271,6 +272,23 @@ def extract_cell_structures_from_batch(batch: Any) -> RankedStructureSet:
     return {0: nodes, 1: edges, 2: cells}
 
 
+def extract_cell_simple_cycle_structures_from_batch(
+    batch: Any,
+    *,
+    max_support_nodes: int = 8,
+) -> RankedStructureSet:
+    """Extract generated simple-cycle cells from a batch induced graph."""
+    global_nid = batch.global_nid.detach().cpu().to(torch.long)
+    nodes = {("v", int(node_id)) for node_id in global_nid.tolist()}
+    edges = edge_index_to_undirected_edges(batch.edge_index, global_nid)
+    cells = simple_cycle_cells_from_edges(
+        active_nodes=global_nid.numpy(),
+        edges=edges,
+        max_support_nodes=max_support_nodes,
+    )
+    return {0: nodes, 1: edges, 2: cells}
+
+
 def extract_hypergraph_structures_from_batch(batch: Any) -> RankedStructureSet:
     """Extract rank 0 nodes and rank 1 hyperedges from batch incidence."""
     if not hasattr(batch, "incidence_hyperedges"):
@@ -301,8 +319,10 @@ def extract_structures_from_batch(
     *,
     batch: Any,
     structure_family: str,
+    structure_params: dict[str, Any] | None = None,
 ) -> RankedStructureSet:
     """Dispatch batch extraction for the configured structure family."""
+    structure_params = structure_params or {}
     if structure_family == "simplicial_clique":
         return extract_simplicial_structures_from_edge_index(
             batch.edge_index,
@@ -310,6 +330,13 @@ def extract_structures_from_batch(
         )
     if structure_family == "cell_cycle":
         return extract_cell_structures_from_batch(batch)
+    if structure_family == "cell_simple_cycles":
+        return extract_cell_simple_cycle_structures_from_batch(
+            batch,
+            max_support_nodes=int(
+                structure_params.get("max_support_nodes", 8)
+            ),
+        )
     if structure_family in ("hypergraph_khop", "hypergraph_incidence"):
         return extract_hypergraph_structures_from_batch(batch)
     raise ValueError(f"Unsupported structure family: {structure_family!r}")
@@ -421,6 +448,48 @@ def cell_cycles_from_edges(
     return cells
 
 
+def simple_cycle_cells_from_edges(
+    *,
+    active_nodes: np.ndarray,
+    edges: set[StructureKey],
+    max_support_nodes: int = 8,
+) -> set[StructureKey]:
+    """Enumerate all undirected simple-cycle cells up to a node-support cap."""
+    max_support_nodes = int(max_support_nodes)
+    if max_support_nodes < 3 or not edges:
+        return set()
+
+    graph = graph_from_nodes_and_edges(active_nodes, edges)
+    adjacency = {
+        int(node): sorted(int(neighbor) for neighbor in graph.neighbors(node))
+        for node in graph.nodes
+    }
+    cells: set[StructureKey] = set()
+
+    def dfs(start: int, path: list[int], visited: set[int]) -> None:
+        current = path[-1]
+        for neighbor in adjacency[current]:
+            if neighbor < start:
+                continue
+            if neighbor == start:
+                if len(path) >= 3:
+                    cell = canonical_cell(_cycle_boundary_edges(path))
+                    if cell is not None:
+                        cells.add(cell)
+                continue
+            if neighbor in visited or len(path) >= max_support_nodes:
+                continue
+            visited.add(neighbor)
+            path.append(neighbor)
+            dfs(start, path, visited)
+            path.pop()
+            visited.remove(neighbor)
+
+    for start in sorted(adjacency):
+        dfs(start, [start], {start})
+    return cells
+
+
 def khop_hyperedges_from_edges(
     *,
     active_nodes: np.ndarray,
@@ -485,6 +554,30 @@ def compute_global_cell_structures(
     return structures, np.asarray(partptr), active_nodes, edges
 
 
+def compute_global_cell_simple_cycle_structures(
+    *,
+    memmap_dir: str | Path,
+    train_part_ids: np.ndarray,
+    max_support_nodes: int = 8,
+) -> tuple[RankedStructureSet, np.ndarray, np.ndarray, set[StructureKey]]:
+    """Compute rank 0/1 and generated simple-cycle rank-2 cell structures."""
+    memmap_dir = Path(memmap_dir)
+    partptr = np.load(memmap_dir / "partptr.npy", mmap_mode="r")
+    indptr = np.load(memmap_dir / "indptr.npy", mmap_mode="r")
+    indices = np.load(memmap_dir / "indices.npy", mmap_mode="r")
+
+    active_nodes = nodes_for_part_ids(partptr, train_part_ids)
+    nodes = {("v", int(node)) for node in active_nodes.tolist()}
+    edges = csr_to_undirected_edges(indptr, indices, active_nodes)
+    cells = simple_cycle_cells_from_edges(
+        active_nodes=active_nodes,
+        edges=edges,
+        max_support_nodes=max_support_nodes,
+    )
+    structures = {0: nodes, 1: edges, 2: cells}
+    return structures, np.asarray(partptr), active_nodes, edges
+
+
 def compute_global_hypergraph_structures(
     *,
     memmap_dir: str | Path,
@@ -532,6 +625,14 @@ def compute_global_structures(
                 int(max_cell_length)
                 if max_cell_length not in (None, "null")
                 else None
+            ),
+        )
+    if structure_family == "cell_simple_cycles":
+        return compute_global_cell_simple_cycle_structures(
+            memmap_dir=memmap_dir,
+            train_part_ids=train_part_ids,
+            max_support_nodes=int(
+                structure_params.get("max_support_nodes", 8)
             ),
         )
     if structure_family == "hypergraph_khop":
@@ -1061,6 +1162,7 @@ class StructuralCoverageCallback(Callback):
         structures = extract_structures_from_batch(
             batch=batch,
             structure_family=self.structure_family,
+            structure_params=self.structure_params,
         )
         structures = filter_structures_to_universe(
             structures, self.global_structures
@@ -1177,7 +1279,7 @@ class StructuralCoverageCallback(Callback):
         observable_count = sum(
             1 for structure, span in self.spans.items() if span <= self.q
         )
-        return {
+        payload = {
             "structure_node_id_space": STRUCTURE_NODE_ID_SPACE,
             "structure_family": self.structure_family,
             "structure_params": self.structure_params,
@@ -1227,6 +1329,17 @@ class StructuralCoverageCallback(Callback):
             "created_at_unix": time.time(),
             "config": self.cfg_snapshot,
         }
+        if self.structure_family == "cell_simple_cycles":
+            payload.update(
+                {
+                    "max_support_nodes": int(
+                        self.structure_params.get("max_support_nodes", 8)
+                    ),
+                    "cell_object": "simple_cycle",
+                    "cell_generation_field": "F2_cycle_space_simple_cycles",
+                }
+            )
+        return payload
 
     def _write_metadata(self, active_nodes: np.ndarray) -> None:
         write_json(

@@ -42,6 +42,27 @@ uv run scripts/structural_coverage/run.sh \
 
 Override `TRANSFORMS_CONFIG` or pass Hydra overrides when needed.
 
+For generated cell-space structures, opt into bounded simple cycles:
+
+```bash
+MODEL_CONFIG="cell/cwn" \
+Q_VALUES="8" \
+DATA_SEEDS="0 1 2" \
+DATA_SPLIT_SEED="0" \
+MAX_EPOCHS="200" \
+RESULTS_ROOT="scripts/structural_coverage/results/cora_cell_simple_cycles_n8_np64_q8_3seeds" \
+uv run scripts/structural_coverage/run.sh \
+  dataset.loader.parameters.cluster.num_parts=64 \
+  coverage.structure_family=cell_simple_cycles \
+  +coverage.max_support_nodes=8 \
+  callbacks.early_stopping=null \
+  trainer.min_epochs=50
+```
+
+On Cora, `max_support_nodes=8` already generates roughly one million bounded
+simple-cycle structures. Smoke-test larger values before launching multi-seed
+runs.
+
 Plot a result root with:
 
 ```bash
