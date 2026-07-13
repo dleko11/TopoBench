@@ -495,9 +495,9 @@ def _process_and_save_batch(task):
 class ClusterGCNDataModule(LightningDataModule):
     """Streaming DataModule for a single global Cluster-GCN partition.
 
-    Uses one shared global partition and memmap bundle; train, validation
-    and test loaders differ only in which cluster parts they cover and
-    which supervision mask is active.
+    Uses one shared global partition and memmap bundle. By default, every
+    loader covers every cluster part; the active supervision mask determines
+    which nodes contribute to the loss and metrics.
 
     Parameters
     ----------
@@ -540,6 +540,8 @@ class ClusterGCNDataModule(LightningDataModule):
     val_cache_fingerprint : str or int, optional
         Fingerprint to differentiate cache runs. Default is None.
     """
+
+    CACHE_SEMANTICS_VERSION = 2
 
     def __init__(
         self,
@@ -592,7 +594,9 @@ class ClusterGCNDataModule(LightningDataModule):
         self.num_workers = int(num_workers)
         self.pin_memory = bool(pin_memory)
         self.with_edge_attr = bool(with_edge_attr)
-        self.eval_cover_strategy = str(eval_cover_strategy)
+        self.eval_cover_strategy = self._normalize_cover_parts(
+            eval_cover_strategy
+        )
         self.seed = int(seed)
         self.device = device
         self.persistent_workers = (
@@ -688,14 +692,36 @@ class ClusterGCNDataModule(LightningDataModule):
         Iterable of int
             Cluster part IDs to iterate.
         """
-        cover_parts = str(cover_parts).lower()
+        cover_parts = self._normalize_cover_parts(cover_parts)
         if cover_parts == "split":
             return self._part_ids_for_split(split)
         if cover_parts == "all":
             return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
+
+        raise AssertionError("Unreachable cover_parts value.")
+
+    @staticmethod
+    def _normalize_cover_parts(cover_parts: str) -> str:
+        """Normalize configured partition-coverage aliases.
+
+        Parameters
+        ----------
+        cover_parts : str
+            Coverage strategy name.
+
+        Returns
+        -------
+        {"split", "all"}
+            Canonical coverage strategy.
+        """
+        normalized = str(cover_parts).lower()
+        if normalized in {"split", "split_parts"}:
+            return "split"
+        if normalized in {"all", "all_parts"}:
+            return "all"
         raise ValueError(
-            "cover_parts must be either 'split' or 'all', "
-            f"got {cover_parts!r}."
+            "cover_parts must be one of 'split', 'split_parts', 'all', "
+            f"or 'all_parts', got {cover_parts!r}."
         )
 
     def _q_for_split(self, split: str) -> int:
@@ -736,7 +762,7 @@ class ClusterGCNDataModule(LightningDataModule):
         shuffle: bool,
         q: int | None = None,
         seed: int | None = None,
-        cover_parts: str = "split",
+        cover_parts: str = "all",
     ) -> DataLoader:
         """Build and return a DataLoader for a given split.
 
@@ -751,7 +777,7 @@ class ClusterGCNDataModule(LightningDataModule):
         seed : int or None, optional
             Seed used when ``shuffle`` is True. Defaults to the datamodule seed.
         cover_parts : {"split", "all"}, optional
-            Part coverage mode. Default is ``"split"``.
+            Part coverage mode. Default is ``"all"``.
 
         Returns
         -------
@@ -797,7 +823,7 @@ class ClusterGCNDataModule(LightningDataModule):
         q: int | None = None,
         shuffle: bool = False,
         seed: int | None = None,
-        cover_parts: str = "split",
+        cover_parts: str = "all",
     ) -> DataLoader:
         """Build an inference dataloader with explicit grouping controls.
 
@@ -813,7 +839,7 @@ class ClusterGCNDataModule(LightningDataModule):
             Seed used when shuffling. Defaults to the datamodule seed.
         cover_parts : {"split", "all"}, optional
             Whether to cover split-supervised parts or all parts. Default is
-            ``"split"``.
+            ``"all"``.
 
         Returns
         -------
@@ -858,6 +884,7 @@ class ClusterGCNDataModule(LightningDataModule):
                         "with_edge_attr": int(self.with_edge_attr),
                         "seed": self.seed,
                         "eval_cover_strategy": self.eval_cover_strategy,
+                        "cache_semantics_version": self.CACHE_SEMANTICS_VERSION,
                     }
                 )
             )
@@ -883,7 +910,13 @@ class ClusterGCNDataModule(LightningDataModule):
                 os.remove(f)
 
             part_ids = np.asarray(
-                list(self._part_ids_for_split("val")), dtype=np.int64
+                list(
+                    self._part_ids_for_coverage(
+                        split="val",
+                        cover_parts=self.eval_cover_strategy,
+                    )
+                ),
+                dtype=np.int64,
             )
 
             batches = [
@@ -979,7 +1012,11 @@ class ClusterGCNDataModule(LightningDataModule):
         DataLoader
             Training dataloader.
         """
-        return self._build_loader(split="train", shuffle=True)
+        return self._build_loader(
+            split="train",
+            shuffle=True,
+            cover_parts="all",
+        )
 
     def val_dataloader(self) -> DataLoader:
         """Return dataloader for the validation split.
@@ -1010,7 +1047,11 @@ class ClusterGCNDataModule(LightningDataModule):
                 persistent_workers=False,
             )
 
-        return self._build_loader(split="val", shuffle=False)
+        return self._build_loader(
+            split="val",
+            shuffle=False,
+            cover_parts=self.eval_cover_strategy,
+        )
 
     def test_dataloader(self) -> DataLoader:
         """Return dataloader for the test split.
@@ -1020,4 +1061,8 @@ class ClusterGCNDataModule(LightningDataModule):
         DataLoader
             Test dataloader.
         """
-        return self._build_loader(split="test", shuffle=False)
+        return self._build_loader(
+            split="test",
+            shuffle=False,
+            cover_parts=self.eval_cover_strategy,
+        )

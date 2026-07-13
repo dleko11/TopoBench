@@ -77,6 +77,11 @@ class TBModel(LightningModule):
         self.metric_collector_val = []
         self.metric_collector_val2 = []
         self.metric_collector_test = []
+        self.empty_supervision_batches = {
+            "train": 0,
+            "val": 0,
+            "test": 0,
+        }
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(backbone={self.backbone}, readout={self.readout}, loss={self.loss}, feature_encoder={self.feature_encoder})"
@@ -137,7 +142,9 @@ class TBModel(LightningModule):
 
         return model_out
 
-    def training_step(self, batch: Data, batch_idx: int) -> torch.Tensor:
+    def training_step(
+        self, batch: Data, batch_idx: int
+    ) -> torch.Tensor | None:
         r"""Perform a single training step on a batch of data.
 
         Parameters
@@ -149,9 +156,13 @@ class TBModel(LightningModule):
 
         Returns
         -------
-        torch.Tensor
-            A tensor of losses between model predictions and targets.
+        torch.Tensor or None
+            A tensor of losses between model predictions and targets, or
+            ``None`` when the batch contains no supervised nodes.
         """
+        if self._skip_empty_supervision_batch(batch, phase="train"):
+            return None
+
         self.state_str = "Training"
         model_out = self.model_step(batch)
 
@@ -179,6 +190,9 @@ class TBModel(LightningModule):
         batch_idx : int
             The index of the current batch.
         """
+        if self._skip_empty_supervision_batch(batch, phase="val"):
+            return
+
         self.state_str = "Validation"
         model_out = self.model_step(batch)
 
@@ -203,6 +217,9 @@ class TBModel(LightningModule):
         batch_idx : int
             The index of the current batch.
         """
+        if self._skip_empty_supervision_batch(batch, phase="test"):
+            return
+
         self.state_str = "Test"
         model_out = self.model_step(batch)
 
@@ -215,6 +232,76 @@ class TBModel(LightningModule):
             on_epoch=True,
             prog_bar=True,
             batch_size=1,
+        )
+
+    def _skip_empty_supervision_batch(
+        self,
+        batch: Data,
+        *,
+        phase: str,
+    ) -> bool:
+        """Return whether a node-level batch has no active supervision.
+
+        Empty masked tensors are invalid inputs to the dataset losses and
+        evaluators. Single-device runs safely skip such batches. Distributed
+        runs fail explicitly because Lightning cannot skip a training step on
+        only a subset of ranks.
+
+        Parameters
+        ----------
+        batch : Data
+            Current graph batch.
+        phase : {"train", "val", "test"}
+            Active supervision phase.
+
+        Returns
+        -------
+        bool
+            True when the batch should be skipped.
+        """
+        if self.task_level != "node":
+            return False
+
+        phase_to_mask = {
+            "train": "train_mask",
+            "val": "val_mask",
+            "test": "test_mask",
+        }
+        if phase not in phase_to_mask:
+            raise ValueError(f"Invalid supervision phase {phase!r}.")
+
+        mask = getattr(batch, phase_to_mask[phase], None)
+        if mask is None or bool(mask.any()):
+            return False
+
+        if (
+            phase == "train"
+            and self._trainer is not None
+            and self._trainer.world_size > 1
+        ):
+            raise RuntimeError(
+                "Encountered an empty-supervision training batch in a "
+                "distributed run. Skipping training steps is unsupported "
+                "across multiple ranks; increase q or use single-device "
+                "training."
+            )
+
+        self.empty_supervision_batches[phase] += 1
+        return True
+
+    def _log_empty_supervision_batches(self, phase: str) -> None:
+        """Log the number of skipped batches for one completed phase.
+
+        Parameters
+        ----------
+        phase : {"train", "val", "test"}
+            Completed supervision phase whose counter should be logged.
+        """
+        self.log(
+            f"tracking/{phase}_empty_supervision_batches",
+            float(self.empty_supervision_batches[phase]),
+            prog_bar=False,
+            sync_dist=True,
         )
 
     def process_outputs(self, model_out: dict, batch: Data) -> dict:
@@ -286,6 +373,7 @@ class TBModel(LightningModule):
         # Log train metrics and reset evaluator
         self.log_metrics(mode="train")
         self.train_metrics_logged = True
+        self.empty_supervision_batches["val"] = 0
 
     def on_train_epoch_end(self) -> None:
         r"""Lightning hook that is called when a train epoch ends.
@@ -296,6 +384,7 @@ class TBModel(LightningModule):
         if not self.train_metrics_logged:
             self.log_metrics(mode="train")
             self.train_metrics_logged = True
+        self._log_empty_supervision_batches("train")
 
     def on_validation_epoch_end(self) -> None:
         r"""Lightning hook that is called when a validation epoch ends.
@@ -304,6 +393,7 @@ class TBModel(LightningModule):
         """
         # Log validation metrics and reset evaluator
         self.log_metrics(mode="val")
+        self._log_empty_supervision_batches("val")
 
     def on_test_epoch_end(self) -> None:
         r"""Lightning hook that is called when a test epoch ends.
@@ -311,6 +401,7 @@ class TBModel(LightningModule):
         This hook is used to log the test metrics.
         """
         self.log_metrics(mode="test")
+        self._log_empty_supervision_batches("test")
 
     def on_train_epoch_start(self) -> None:
         r"""Lightning hook that is called when a train epoch begins.
@@ -319,13 +410,7 @@ class TBModel(LightningModule):
         """
         self.evaluator.reset()
         self.train_metrics_logged = False
-
-    def on_val_epoch_start(self) -> None:
-        r"""Lightning hook that is called when a validation epoch begins.
-
-        This hook is used to reset the validation metrics.
-        """
-        self.evaluator.reset()
+        self.empty_supervision_batches["train"] = 0
 
     def on_test_epoch_start(self) -> None:
         r"""Lightning hook that is called when a test epoch begins.
@@ -333,6 +418,7 @@ class TBModel(LightningModule):
         This hook is used to reset the test metrics.
         """
         self.evaluator.reset()
+        self.empty_supervision_batches["test"] = 0
 
     def setup(self, stage: str) -> None:
         r"""Hook to call torch.compile.

@@ -184,6 +184,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
                     "seed": cfg.get("seed", 42),
                     "eval_cover_strategy": eval_cover_strategy,
+                    "cache_semantics_version": (
+                        ClusterGCNDataModule.CACHE_SEMANTICS_VERSION
+                    ),
                 }
             )
 
@@ -679,7 +682,7 @@ def _run_ensemble_test_inference(
                     split="test",
                     shuffle=ensemble_shuffle,
                     seed=ensemble_seed + run_idx,
-                    cover_parts="split",
+                    cover_parts="all",
                 )
                 for batch in loader:
                     batch = batch.to(device)

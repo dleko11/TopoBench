@@ -58,3 +58,9 @@ seed: 42
 
 # make cudnn backend fully reproducible
 deterministic: False
+
+# Cluster-streamed evaluation covers every partition by default so unlabeled
+# clusters can still supply message-passing context. Use split_parts only for
+# the legacy behavior that omits clusters without nodes in the active split.
+eval:
+  cover_strategy: all_parts

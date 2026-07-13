@@ -20,7 +20,8 @@ TEST_INFERENCE_PROTOCOLS="${TEST_INFERENCE_PROTOCOLS:-[batched,ensemble,full_gra
 
 DATASET_FILTER="${DATASET_FILTER:-}"
 MODEL_FILTER="${MODEL_FILTER:-}"
-WANDB_PROJECT_PREFIX="${WANDB_PROJECT_PREFIX:-final}"
+PIPELINE_TAG="${PIPELINE_TAG:-all_clusters}"
+WANDB_PROJECT_PREFIX="${WANDB_PROJECT_PREFIX:-final_${PIPELINE_TAG}}"
 WANDB_PROJECT_SUFFIX="${WANDB_PROJECT_SUFFIX:-}"
 
 if [[ -n "${DATA_SEEDS_OVERRIDE:-}" ]]; then
@@ -32,7 +33,7 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
-log_group="${script_name}_sweep"
+log_group="${script_name}_${PIPELINE_TAG}_sweep"
 
 source "$SCRIPT_DIR/common.sh"
 
@@ -151,6 +152,8 @@ run_final_partitioning_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
+    echo "Pipeline tag: $PIPELINE_TAG"
+    echo "Evaluation coverage: all_parts"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Ensemble runs: $ENSEMBLE_RUNS"
 
@@ -171,7 +174,7 @@ run_final_partitioning_suite() {
         fi
 
         for data_seed in "${DATA_SEEDS[@]}"; do
-            run_name="final_partitioning_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
+            run_name="final_partitioning_${PIPELINE_TAG}_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
                 skipped=$(( skipped + 1 ))
@@ -221,6 +224,7 @@ run_final_partitioning_suite() {
                 "trainer.min_epochs=${MIN_EPOCHS}"
                 "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
                 "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
+                "eval.cover_strategy=all_parts"
                 "test_inference.protocols=${TEST_INFERENCE_PROTOCOLS}"
                 "test_inference.ensemble_runs=${ENSEMBLE_RUNS}"
                 "test_inference.ensemble_seed=${data_seed}"
