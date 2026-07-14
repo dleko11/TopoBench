@@ -311,6 +311,37 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 Please define either 'inductive' or 'transductive'."
             )
 
+    def load_configured_transductive_graph(self, split_params):
+        """Return the single graph carrying the configured split masks.
+
+        This deliberately uses the graph returned by the split pipeline. PyG
+        datasets such as Planetoid already contain predefined masks on their
+        source graph; reading that source graph after generating a random split
+        would silently discard ``train_prop`` and ``data_seed``.
+
+        Parameters
+        ----------
+        split_params : dict
+            Parameters for the transductive split pipeline.
+
+        Returns
+        -------
+        torch_geometric.data.Data
+            Single graph carrying the configured train, validation, and test
+            masks.
+        """
+        if split_params.learning_setting != "transductive":
+            raise ValueError(
+                "Global partition streaming requires a transductive "
+                "single-graph split."
+            )
+        ds_train, _, _ = self.load_dataset_splits(split_params)
+        if ds_train is None or not ds_train.data_lst:
+            raise ValueError(
+                "The configured transductive split did not return a graph."
+            )
+        return ds_train.data_lst[0]
+
     def pack_global_partition(
         self,
         split_params: dict,
@@ -360,6 +391,10 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             "split_params": ensure_serializable(split_params),
             "cluster_params": ensure_serializable(cluster_params),
             "dtype_policy": dtype_policy,
+            # Bump this value when the persisted split-mask semantics change.
+            # It prevents caches built with source-dataset masks from being
+            # reused after configured transductive masks became authoritative.
+            "split_mask_policy": "configured_transductive_v1",
         }
         config_hash = make_hash(cluster_config)
 
@@ -398,9 +433,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             logging.info(
                 f"[pack_global_partition] Building new partition (hash={config_hash}): {part_dir}"
             )
-            _ = self.load_dataset_splits(split_params)
-
-            full = getattr(self.dataset, "data", None)
+            full = self.load_configured_transductive_graph(split_params)
 
             # num_nodes
             if getattr(full, "num_nodes", None) is not None:
@@ -414,20 +447,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             else:
                 raise ValueError("Cannot infer num_nodes from full graph.")
 
-            if getattr(full, "train_mask", None) is None:
-                ds_train, ds_val, ds_test = self.load_dataset_splits(
-                    split_params
-                )
-                full = ds_train.data_lst[0]
-                full.train_mask = to_bool_mask(
-                    getattr(full, "train_mask", None), N
-                )
-                full.val_mask = to_bool_mask(
-                    getattr(full, "val_mask", None), N
-                )
-                full.test_mask = to_bool_mask(
-                    getattr(full, "test_mask", None), N
-                )
+            full.train_mask = to_bool_mask(
+                getattr(full, "train_mask", None), N
+            )
+            full.val_mask = to_bool_mask(getattr(full, "val_mask", None), N)
+            full.test_mask = to_bool_mask(getattr(full, "test_mask", None), N)
 
             # Checks: we require a single full graph with masks.
             if getattr(full, "edge_index", None) is None:

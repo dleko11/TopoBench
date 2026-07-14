@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import pickle
 import shutil
 import time
 from collections import Counter, defaultdict
@@ -17,6 +18,7 @@ from typing import Any
 import networkx as nx
 import numpy as np
 import torch
+from filelock import FileLock
 from lightning import Callback
 
 StructureKey = tuple[Any, ...]
@@ -33,6 +35,7 @@ SUPPORTED_STRUCTURE_FAMILIES = (
     "hypergraph_khop",
     "hypergraph_incidence",
 )
+COVERAGE_CACHE_VERSION = 1
 
 
 def _json_default(value: Any) -> Any:
@@ -650,6 +653,127 @@ def compute_global_structures(
     raise ValueError(f"Unsupported structure family: {structure_family!r}")
 
 
+def _coverage_cache_key(
+    *,
+    handle: dict[str, Any],
+    train_part_ids: np.ndarray,
+    structure_family: str,
+    structure_params: dict[str, Any],
+) -> str:
+    """Return a stable key for one global structural universe."""
+    payload = {
+        "version": COVERAGE_CACHE_VERSION,
+        "partition_hash": handle.get("config_hash"),
+        "memmap_dir": str(Path(handle["memmap_dir"]).resolve()),
+        "train_part_ids": np.asarray(train_part_ids, dtype=np.int64).tolist(),
+        "structure_family": structure_family,
+        "structure_params": structure_params,
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_json_default,
+    )
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def load_or_compute_global_structures(
+    *,
+    handle: dict[str, Any],
+    train_part_ids: np.ndarray,
+    structure_family: str,
+    structure_params: dict[str, Any] | None = None,
+    cache_root: str | Path | None = None,
+) -> tuple[
+    RankedStructureSet,
+    np.ndarray,
+    np.ndarray,
+    set[StructureKey],
+    dict[StructureKey, int],
+    dict[str, Any],
+]:
+    """Load or compute a global universe and its partition spans.
+
+    The bounded simple-cycle universe is expensive to enumerate. This cache is
+    shared safely by concurrent sweep processes and is keyed by the partition,
+    active training parts, structure family, and family parameters.
+    """
+    structure_params = structure_params or {}
+
+    def compute() -> tuple[
+        RankedStructureSet,
+        np.ndarray,
+        np.ndarray,
+        set[StructureKey],
+        dict[StructureKey, int],
+    ]:
+        structures, partptr, active_nodes, full_edges = (
+            compute_global_structures(
+                memmap_dir=handle["memmap_dir"],
+                train_part_ids=train_part_ids,
+                structure_family=structure_family,
+                structure_params=structure_params,
+            )
+        )
+        spans = compute_structure_spans(structures, partptr)
+        return structures, partptr, active_nodes, full_edges, spans
+
+    if cache_root in (None, "", "null"):
+        return (*compute(), {"enabled": False, "hit": False})
+
+    key = _coverage_cache_key(
+        handle=handle,
+        train_part_ids=train_part_ids,
+        structure_family=structure_family,
+        structure_params=structure_params,
+    )
+    root = Path(str(cache_root)).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    cache_path = root / f"universe_{key}.pkl"
+    lock_path = root / f"universe_{key}.lock"
+
+    with FileLock(str(lock_path), timeout=-1):
+        if cache_path.exists():
+            with cache_path.open("rb") as handle_file:
+                payload = pickle.load(handle_file)  # noqa: S301
+            if payload.get("version") != COVERAGE_CACHE_VERSION:
+                raise ValueError(
+                    f"Unsupported structural coverage cache at {cache_path}."
+                )
+            values = payload["values"]
+            cache_info = {
+                "enabled": True,
+                "hit": True,
+                "key": key,
+                "path": str(cache_path),
+            }
+            return (*values, cache_info)
+
+        values = compute()
+        temporary = cache_path.with_name(
+            f".{cache_path.name}.{os.getpid()}.tmp"
+        )
+        try:
+            with temporary.open("wb") as handle_file:
+                pickle.dump(
+                    {"version": COVERAGE_CACHE_VERSION, "values": values},
+                    handle_file,
+                    protocol=pickle.HIGHEST_PROTOCOL,
+                )
+            os.replace(temporary, cache_path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        cache_info = {
+            "enabled": True,
+            "hit": False,
+            "key": key,
+            "path": str(cache_path),
+        }
+        return (*values, cache_info)
+
+
 def flatten_structures(structures: RankedStructureSet) -> set[StructureKey]:
     """Flatten a ranked structure mapping into a single set."""
     out: set[StructureKey] = set()
@@ -948,6 +1072,7 @@ class StructuralCoverageCallback(Callback):
         audit_induced_edges: bool = True,
         audit_max_batches: int = 10,
         require_equal_batches: bool = True,
+        cache_root: str | Path | None = None,
     ) -> None:
         super().__init__()
         self.handle = handle
@@ -966,6 +1091,11 @@ class StructuralCoverageCallback(Callback):
         self.audit_induced_edges = bool(audit_induced_edges)
         self.audit_max_batches = int(audit_max_batches)
         self.require_equal_batches = bool(require_equal_batches)
+        self.cache_root = cache_root
+        self.cache_info: dict[str, Any] = {
+            "enabled": cache_root not in (None, "", "null"),
+            "hit": False,
+        }
 
         self.global_structures: RankedStructureSet = {
             rank: set() for rank in RANKS
@@ -1008,18 +1138,21 @@ class StructuralCoverageCallback(Callback):
 
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self.train_part_ids = load_part_ids_for_split(self.handle, "train")
-        self.global_structures, self.partptr, active_nodes, self.full_edges = (
-            compute_global_structures(
-                memmap_dir=self.handle["memmap_dir"],
-                train_part_ids=self.train_part_ids,
-                structure_family=self.structure_family,
-                structure_params=self.structure_params,
-            )
+        (
+            self.global_structures,
+            self.partptr,
+            active_nodes,
+            self.full_edges,
+            self.spans,
+            self.cache_info,
+        ) = load_or_compute_global_structures(
+            handle=self.handle,
+            train_part_ids=self.train_part_ids,
+            structure_family=self.structure_family,
+            structure_params=self.structure_params,
+            cache_root=self.cache_root,
         )
         self.active_node_count = int(active_nodes.shape[0])
-        self.spans = compute_structure_spans(
-            self.global_structures, self.partptr
-        )
         k_eff = int(self.train_part_ids.shape[0])
         if self.require_equal_batches and k_eff % self.q != 0:
             raise ValueError(
@@ -1318,6 +1451,7 @@ class StructuralCoverageCallback(Callback):
             "audit_max_batches": self.audit_max_batches,
             "audited_batches": self.audited_batches,
             "require_equal_batches": self.require_equal_batches,
+            "coverage_cache": self.cache_info,
             "unique_epoch_groupings": len(self.epoch_grouping_signatures),
             "mean_pair_cooccurrence": compute_mean_pair_cooccurrence(
                 self.pair_counts, train_part_ids, self.completed_epochs

@@ -55,6 +55,8 @@ DEFAULT_OVERRIDES = [
     "extras.print_config=false",
     "extras.enforce_tags=false",
     "+coverage.results_root=scripts/structural_coverage/results",
+    "+coverage.run_dir=null",
+    "+coverage.cache_root=null",
     "+coverage.save_batch_events=false",
     "+coverage.audit_induced_edges=true",
     "+coverage.audit_max_batches=10",
@@ -207,6 +209,10 @@ def structure_params_for_family(
 
 
 def _result_dir(cfg: DictConfig) -> Path:
+    configured_run_dir = cfg.get("coverage", {}).get("run_dir", None)
+    if configured_run_dir not in (None, "", "null"):
+        return Path(str(configured_run_dir)).resolve()
+
     q = int(cfg.dataset.loader.parameters.stream.get("q", 1))
     seed = int(cfg.get("seed", 42))
     family = infer_structure_family(cfg)
@@ -336,6 +342,7 @@ def build_experiment_objects(
         audit_induced_edges=coverage_cfg.get("audit_induced_edges", True),
         audit_max_batches=coverage_cfg.get("audit_max_batches", 10),
         require_equal_batches=coverage_cfg.get("require_equal_batches", True),
+        cache_root=coverage_cfg.get("cache_root", None),
     )
     callbacks.append(coverage_callback)
 

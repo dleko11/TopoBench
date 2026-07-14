@@ -22,6 +22,7 @@ from scripts.structural_coverage.coverage import (
     extract_hypergraph_structures_from_batch,
     extract_simplicial_structures_from_edge_index,
     induced_edge_mismatch,
+    load_or_compute_global_structures,
     per_epoch_probability,
     simple_cycle_cells_from_edges,
 )
@@ -368,3 +369,27 @@ def test_pair_cooccurrence_audit_statistic():
         2 / 6
     )
     assert expected_pair_cooccurrence(q=2, k_eff=4) == pytest.approx(1 / 3)
+
+
+def test_global_structure_cache_round_trip(tmp_path):
+    memmap_dir = tmp_path / "memmap"
+    memmap_dir.mkdir()
+    np.save(memmap_dir / "partptr.npy", np.array([0, 2, 4]))
+    np.save(memmap_dir / "indptr.npy", np.array([0, 2, 4, 7, 8]))
+    np.save(memmap_dir / "indices.npy", np.array([1, 2, 0, 2, 0, 1, 3, 2]))
+    handle = {"memmap_dir": str(memmap_dir), "config_hash": 123}
+    kwargs = {
+        "handle": handle,
+        "train_part_ids": np.array([0, 1]),
+        "structure_family": "simplicial_clique",
+        "cache_root": tmp_path / "cache",
+    }
+
+    first = load_or_compute_global_structures(**kwargs)
+    second = load_or_compute_global_structures(**kwargs)
+
+    assert first[0] == second[0]
+    assert first[4] == second[4]
+    assert first[5]["hit"] is False
+    assert second[5]["hit"] is True
+    assert first[5]["key"] == second[5]["key"]
