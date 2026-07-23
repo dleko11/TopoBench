@@ -138,7 +138,8 @@ run_ablation() {
                     "optimizer.parameters.lr=${lr}" "optimizer.parameters.weight_decay=${wd}" "model.feature_encoder.out_channels=${channels}" "model.feature_encoder.proj_dropout=${proj_dropout}"
                     "dataset.dataloader_params.batch_size=1" "dataset.split_params.data_seed=${seed}" "seed=${seed}"
                     "dataset.loader.parameters.cluster.num_parts=${parts}" "++dataset.loader.parameters.cluster.partition_method=${method}"
-                    "dataset.loader.parameters.stream.q=${q}" "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}" "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
+                    "dataset.loader.parameters.stream.q=${q}" "++dataset.loader.parameters.stream.q_val=${q}" "++dataset.loader.parameters.stream.q_test=${q}"
+                    "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}" "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
                     "trainer.max_epochs=${MAX_EPOCHS}" "trainer.min_epochs=${MIN_EPOCHS}" "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}" "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
                     "trainer.devices=[${current_gpu}]" "logger.wandb.project=${project_name}" "+logger.wandb.name=${run_name}" "+trainer.enable_progress_bar=false")
                 [[ "$method" == "random" ]] && cmd+=("++dataset.loader.parameters.cluster.partition_seed=${seed}")
