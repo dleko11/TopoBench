@@ -5,6 +5,7 @@
 
 SELECTED_GPUS="${SELECTED_GPUS:-0,1,2,3,4,5,6,7}"
 MAX_PARALLEL="${MAX_PARALLEL:-0}"
+JOBS_PER_GPU="${JOBS_PER_GPU:-1}"
 RESUME="${RESUME:-true}"
 DRY_RUN="${DRY_RUN:-false}"
 STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
@@ -77,6 +78,22 @@ quote_cmd() { printf '%q ' "$@"; }
 run_ablation() {
     init_experiment_environment
     detect_gpu_slots
+    if ! [[ "$JOBS_PER_GPU" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: JOBS_PER_GPU must be a positive integer." >&2
+        exit 1
+    fi
+    if [[ "$JOBS_PER_GPU" -gt 1 ]]; then
+        local -a physical_gpus=("${gpus[@]}") expanded_gpus=()
+        local gpu slot
+        for gpu in "${physical_gpus[@]}"; do
+            for ((slot = 1; slot <= JOBS_PER_GPU; slot++)); do
+                expanded_gpus+=("$gpu")
+            done
+        done
+        gpus=("${expanded_gpus[@]}")
+        slot_pids=()
+        for slot in "${!gpus[@]}"; do slot_pids[$slot]=0; done
+    fi
     if [[ "$MAX_PARALLEL" != "0" ]]; then
         if ! [[ "$MAX_PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
             echo "ERROR: MAX_PARALLEL must be 0 or a positive integer." >&2
@@ -87,6 +104,7 @@ run_ablation() {
             slot_pids=("${slot_pids[@]:0:MAX_PARALLEL}")
         fi
     fi
+    echo "Jobs per GPU: $JOBS_PER_GPU"
     echo "Maximum concurrent runs: ${#gpus[@]}"
     local success_log="$LOG_DIR/$log_group/SUCCESSFUL_RUNS.log"
     local total=0 launched=0 skipped=0 counter=0
