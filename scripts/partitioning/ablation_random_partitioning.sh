@@ -4,6 +4,7 @@
 # Default: 2 partition methods × 2 datasets × 7 models × 5 seeds = 140 runs.
 
 SELECTED_GPUS="${SELECTED_GPUS:-0,1,2,3,4,5,6,7}"
+MAX_PARALLEL="${MAX_PARALLEL:-0}"
 RESUME="${RESUME:-true}"
 DRY_RUN="${DRY_RUN:-false}"
 STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
@@ -76,6 +77,17 @@ quote_cmd() { printf '%q ' "$@"; }
 run_ablation() {
     init_experiment_environment
     detect_gpu_slots
+    if [[ "$MAX_PARALLEL" != "0" ]]; then
+        if ! [[ "$MAX_PARALLEL" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: MAX_PARALLEL must be 0 or a positive integer." >&2
+            exit 1
+        fi
+        if [[ "$MAX_PARALLEL" -lt "${#gpus[@]}" ]]; then
+            gpus=("${gpus[@]:0:MAX_PARALLEL}")
+            slot_pids=("${slot_pids[@]:0:MAX_PARALLEL}")
+        fi
+    fi
+    echo "Maximum concurrent runs: ${#gpus[@]}"
     local success_log="$LOG_DIR/$log_group/SUCCESSFUL_RUNS.log"
     local total=0 launched=0 skipped=0 counter=0
     local spec dataset config model model_config transform lr wd channels proj_dropout parts q backbone_dropout
