@@ -12,6 +12,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
 
 from scripts.structural_coverage.plot_appendix_sweep_results_combined import (
     NEUTRAL_COLOR,
@@ -27,18 +28,20 @@ from scripts.structural_coverage.plot_appendix_sweep_results_combined import (
     style_axis,
     write_source_data,
 )
-from scripts.structural_coverage.plot_appendix_sweep_results_split import (
-    draw_count_panel,
-    draw_observable_panel,
-)
 from scripts.structural_coverage.plot_results import (
     FIGURE_WIDTH,
     epoch_stats,
     save_figure,
+    to_float,
 )
 
 FOCUS_Q = 8
 CONTEXT_COLOR = "#D8E0E3"
+OBSERVABILITY_SERIES = (
+    ("Hyperedges", "hypergraph", "rank1", "#2563EB"),
+    ("Cells", "cell_basis", "rank2", "#D97706"),
+    ("Simplices", "simplicial", "rank2", "#7C3AED"),
+)
 
 
 def add_aligned_panel_labels(
@@ -226,38 +229,68 @@ def add_compact_q_key(ax: plt.Axes) -> None:
         )
 
 
+def draw_structural_observability(
+    ax: plt.Axes,
+    profiles: list[ProfileData],
+) -> None:
+    """Draw the three retained structural-observability curves."""
+    plotted_q = tuple(q for q in Q_VALUES if q <= 16)
+    profiles_by_key = {profile.spec.key: profile for profile in profiles}
+    for label, profile_key, group, color in OBSERVABILITY_SERIES:
+        profile = profiles_by_key[profile_key]
+        field = f"observable_ceiling_{group}"
+        values: list[float] = []
+        for q in plotted_q:
+            value = to_float(profile.runs_by_q[q][0]["theory"][0], field)
+            if value is None:
+                raise ValueError(
+                    f"Missing {field} for {profile.spec.label}, q={q}"
+                )
+            values.append(value)
+        ax.plot(
+            plotted_q,
+            values,
+            color=color,
+            linewidth=1.65,
+            marker="o",
+            markersize=4.8,
+            markerfacecolor="white",
+            markeredgecolor=color,
+            markeredgewidth=1.05,
+            label=label,
+            zorder=3,
+        )
+
+    ax.set_xscale("log", base=2)
+    ax.set_xlim(0.85, 18)
+    ax.set_ylim(0.5, 1.015)
+    ax.set_xticks(plotted_q)
+    ax.set_xticklabels([str(q) for q in plotted_q])
+    ax.set_yticks((0.5, 0.75, 1.0))
+    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
+    ax.set_xlabel(r"$q$")
+    style_axis(ax)
+    ax.axhline(1.0, color="#E5E7EB", linewidth=0.65, zorder=0)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(
+        loc="lower right",
+        fontsize=5.7,
+        handlelength=2.0,
+        handletextpad=0.45,
+        labelspacing=0.45,
+        borderaxespad=0.55,
+    )
+
+
 def plot_structural_summary(
     profiles: list[ProfileData],
     output_dir: Path,
 ) -> Path:
-    """Render observable fractions and global structure counts."""
-    fig, (observable_ax, count_ax) = plt.subplots(
-        1,
-        2,
-        figsize=(FIGURE_WIDTH, 3.15),
-        gridspec_kw={"wspace": 0.34},
-    )
-    draw_observable_panel(observable_ax, profiles)
-    draw_count_panel(
-        count_ax,
-        profiles,
-        title="Global higher-order structures",
-    )
-    # fig.suptitle(
-    #     "Structural observability across lifting families",
-    #     x=0.075,
-    #     y=0.995,
-    #     ha="left",
-    #     va="top",
-    #     fontsize=11,
-    #     fontweight="bold",
-    # )
-    fig.subplots_adjust(top=0.88, bottom=0.16, left=0.09, right=0.985)
-    add_aligned_panel_labels(
-        fig,
-        [observable_ax, count_ax],
-        y_axes=1.05,
-    )
+    """Render the redesigned single-panel structural observability figure."""
+    fig, ax = plt.subplots(figsize=(3.55, 2.05))
+    draw_structural_observability(ax, profiles)
+    fig.subplots_adjust(left=0.13, right=0.985, top=0.98, bottom=0.20)
     return save_figure(fig, output_dir, "appendix_structural_observability")
 
 

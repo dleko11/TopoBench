@@ -34,9 +34,11 @@ MID = "#6B7280"
 LIGHT = "#CBD5E1"
 GRID = "#E5E7EB"
 CHECKPOINTS = (10, 50, 200)
-SAMPLE_EVERY = 5
+SAMPLE_EVERY = 1
 GRID_Q_VALUES = (2, 4, 8, 16)
 DEFAULT_DECAY_FRACTION = 0.01
+DEFAULT_COMBINED_ENTROPY_MAX_EPOCH = 1_000_000
+COMBINED_ENTROPY_GRID_SIZE = 1500
 
 
 def configure_style() -> None:
@@ -589,13 +591,11 @@ def plot_entropy_q_grid(
     )
 
 
-def entropy_peak_decay_milestone(
-    profile: ProfileData,
-    q: int,
-    *,
-    decay_fraction: float,
-) -> tuple[int, float, int]:
-    """Return analytic peak and final decay epochs beyond the saved horizon."""
+EntropyTerms = tuple[list[tuple[float, int]], int]
+
+
+def entropy_terms(profile: ProfileData, q: int) -> EntropyTerms:
+    """Return per-span probabilities and the observable normalization count."""
     run = profile.runs_by_q[q][0]
     rank = int(profile.spec.group.removeprefix("rank"))
     k_eff = int(run["metadata"]["K_eff"])
@@ -611,23 +611,71 @@ def entropy_peak_decay_milestone(
         observable += count
         if probability < 1.0:
             terms.append((probability, count))
+    return terms, observable
+
+
+def normalized_entropy_at_epoch(
+    epoch: float,
+    terms: list[tuple[float, int]],
+    observable: int,
+) -> float:
+    """Evaluate the exact normalized entropy at an arbitrary epoch."""
+    if observable == 0:
+        return 0.0
+    entropy_nats = 0.0
+    for probability, count in terms:
+        log_survival = epoch * math.log1p(-probability)
+        if log_survival < -745.0:
+            continue
+        survival = math.exp(log_survival)
+        rho = -math.expm1(log_survival)
+        if rho <= 0.0 or survival <= 0.0:
+            continue
+        entropy_nats += count * (
+            -rho * math.log(rho) - survival * math.log(survival)
+        )
+    return entropy_nats / observable
+
+
+def logarithmic_integer_epochs(
+    max_epoch: int,
+    *,
+    grid_size: int = COMBINED_ENTROPY_GRID_SIZE,
+) -> list[int]:
+    """Return unique logarithmically spaced integer epochs including endpoints."""
+    if max_epoch < 1:
+        raise ValueError("max_epoch must be at least 1")
+    if grid_size < 2:
+        raise ValueError("grid_size must be at least 2")
+    log_upper = math.log(max_epoch)
+    return sorted(
+        {
+            1,
+            max_epoch,
+            *(
+                max(
+                    1,
+                    int(round(math.exp(log_upper * index / (grid_size - 1)))),
+                )
+                for index in range(grid_size)
+            ),
+        }
+    )
+
+
+def entropy_peak_decay_milestone(
+    profile: ProfileData,
+    q: int,
+    *,
+    decay_fraction: float,
+) -> tuple[int, float, int]:
+    """Return analytic peak and final decay epochs beyond the saved horizon."""
+    terms, observable = entropy_terms(profile, q)
     if observable == 0 or not terms:
         return 1, 0.0, 1
 
     def entropy_at(epoch: float) -> float:
-        entropy_nats = 0.0
-        for probability, count in terms:
-            log_survival = epoch * math.log1p(-probability)
-            if log_survival < -745.0:
-                continue
-            survival = math.exp(log_survival)
-            rho = -math.expm1(log_survival)
-            if rho <= 0.0 or survival <= 0.0:
-                continue
-            entropy_nats += count * (
-                -rho * math.log(rho) - survival * math.log(survival)
-            )
-        return entropy_nats / observable
+        return normalized_entropy_at_epoch(epoch, terms, observable)
 
     half_epochs = [
         math.log(0.5) / math.log1p(-probability)
@@ -723,6 +771,54 @@ def calculate_entropy_milestones(
     }
 
 
+def print_entropy_peak_epochs(
+    profiles: list[ProfileData],
+    milestones: EntropyMilestones,
+    *,
+    max_epoch: int,
+    sample_every: int,
+) -> None:
+    """Print exact entropy peaks beside the maxima visible in the trace grid."""
+    print("Entropy peak epochs:")
+    print(
+        f"{'profile':<23} {'q':>3} {'exact T':>8} "
+        f"{'plotted T':>10}  note"
+    )
+    for profile in profiles:
+        field = f"normalized_entropy_nats_{profile.spec.group}"
+        for q in GRID_Q_VALUES:
+            exact_peak_epoch, _, _ = milestones[profile.spec.key, q]
+            epochs, means, _, _ = epoch_stats(
+                profile.runs_by_q[q],
+                "theory",
+                field,
+            )
+            plotted_values = [
+                (epoch, mean)
+                for epoch, mean in zip(epochs, means, strict=True)
+                if epoch <= max_epoch and epoch % sample_every == 0
+            ]
+            if not plotted_values:
+                raise ValueError(
+                    "No plotted entropy values for "
+                    f"{profile.spec.label}, q={q}"
+                )
+            plotted_peak_epoch, _ = max(
+                plotted_values,
+                key=lambda item: item[1],
+            )
+            if exact_peak_epoch > max_epoch:
+                note = f"exact peak is beyond T={max_epoch}"
+            elif plotted_peak_epoch != exact_peak_epoch:
+                note = f"trace is sampled every {sample_every} epochs"
+            else:
+                note = "aligned"
+            print(
+                f"{profile.spec.label:<23} {q:>3} "
+                f"{exact_peak_epoch:>8} {plotted_peak_epoch:>10}  {note}"
+            )
+
+
 def entropy_milestone_handles(decay_fraction: float) -> list[Line2D]:
     """Return the shared legend for the analytic entropy intervals."""
     threshold_percent = 100.0 * decay_fraction
@@ -731,8 +827,8 @@ def entropy_milestone_handles(decay_fraction: float) -> list[Line2D]:
             [0],
             [0],
             marker="o",
-            markerfacecolor="white",
-            markeredgecolor=BLUE,
+            markerfacecolor=INK,
+            markeredgecolor=INK,
             color="none",
             label="Peak entropy",
         ),
@@ -756,6 +852,7 @@ def draw_entropy_peak_decay_axis(
     show_title: bool,
     show_ylabel: bool,
     right_padding: float = 2.8,
+    x_limits: tuple[float, float] | None = None,
 ) -> None:
     """Draw one lifting family's analytic peak-to-decay intervals."""
     y_positions = list(range(len(GRID_Q_VALUES)))
@@ -772,16 +869,16 @@ def draw_entropy_peak_decay_axis(
             peak_epoch,
             decay_epoch,
             color=BLUE,
-            linewidth=1.7,
+            linewidth=1.45,
             zorder=2,
         )
         ax.scatter(
             peak_epoch,
             y,
             s=32,
-            facecolor="white",
-            edgecolor=BLUE,
-            linewidth=1.1,
+            facecolor=INK,
+            edgecolor=INK,
+            linewidth=0.9,
             zorder=4,
         )
         ax.scatter(
@@ -792,19 +889,35 @@ def draw_entropy_peak_decay_axis(
             color=INK,
             zorder=4,
         )
+        peak_label = (
+            f"{peak_epoch:,}"
+            if peak_epoch < 100_000
+            else f"{peak_epoch:.1e}"
+        )
         endpoint_label = (
             f"{decay_epoch:,}"
             if decay_epoch < 100_000
             else f"{decay_epoch:.1e}"
         )
         ax.annotate(
-            endpoint_label,
-            xy=(decay_epoch, y),
-            xytext=(4, 0),
+            peak_label,
+            xy=(peak_epoch, y),
+            xytext=(0, -6),
             textcoords="offset points",
             fontsize=5.6,
             color=MID,
-            va="center",
+            ha="center",
+            va="top",
+        )
+        ax.annotate(
+            endpoint_label,
+            xy=(decay_epoch, y),
+            xytext=(0, 5),
+            textcoords="offset points",
+            fontsize=5.6,
+            color=MID,
+            ha="center",
+            va="bottom",
         )
 
     if show_title:
@@ -814,13 +927,15 @@ def draw_entropy_peak_decay_axis(
             fontweight="semibold",
             pad=6,
         )
-    minimum_peak = min(peak for peak, _, _ in profile_milestones)
-    maximum_decay = max(decay for _, _, decay in profile_milestones)
     ax.set_xscale("log")
-    ax.set_xlim(
-        max(0.8, minimum_peak / 1.8),
-        maximum_decay * right_padding,
-    )
+    if x_limits is None:
+        minimum_peak = min(peak for peak, _, _ in profile_milestones)
+        maximum_decay = max(decay for _, _, decay in profile_milestones)
+        x_limits = (
+            max(0.8, minimum_peak / 1.8),
+            maximum_decay * right_padding,
+        )
+    ax.set_xlim(*x_limits)
     ax.set_ylim(-0.55, len(GRID_Q_VALUES) - 0.45)
     ax.set_yticks(y_positions)
     ax.set_yticklabels([str(q) for q in GRID_Q_VALUES])
@@ -886,24 +1001,27 @@ def plot_entropy_combined(
     milestones: EntropyMilestones,
     *,
     max_epoch: int,
-    sample_every: int,
     decay_fraction: float,
 ) -> Path:
-    """Stack the 16 entropy traces over aligned peak-to-decay summaries."""
+    """Stack exact entropy traces over aligned peak-to-decay summaries."""
+    if max_epoch < 1:
+        raise ValueError("max_epoch must be at least 1")
+    base_epochs = logarithmic_integer_epochs(max_epoch)
     series: dict[tuple[int, str], list[tuple[int, float]]] = {}
     ymax = 0.0
     for q in GRID_Q_VALUES:
         for profile in profiles:
-            field = f"normalized_entropy_nats_{profile.spec.group}"
-            epochs, means, _, _ = epoch_stats(
-                profile.runs_by_q[q],
-                "theory",
-                field,
-            )
+            terms, observable = entropy_terms(profile, q)
+            peak_epoch = milestones[profile.spec.key, q][0]
+            epochs = base_epochs
+            if peak_epoch <= max_epoch and peak_epoch not in base_epochs:
+                epochs = sorted((*base_epochs, peak_epoch))
             values = [
-                (epoch, mean)
-                for epoch, mean in zip(epochs, means, strict=True)
-                if epoch <= max_epoch and epoch % sample_every == 0
+                (
+                    epoch,
+                    normalized_entropy_at_epoch(epoch, terms, observable),
+                )
+                for epoch in epochs
             ]
             series[q, profile.spec.key] = values
             ymax = max(ymax, max((mean for _, mean in values), default=0.0))
@@ -932,14 +1050,10 @@ def plot_entropy_combined(
                 [epoch for epoch, _ in values],
                 [mean for _, mean in values],
                 color=BLUE,
-                marker="o",
-                markersize=1.9,
-                markerfacecolor="white",
-                markeredgewidth=0.65,
-                linewidth=1.05,
+                linewidth=1.25,
             )
-            ax.axhline(ymax, color=GRID, linewidth=0.65, zorder=0)
-            ax.set_xlim(sample_every, max_epoch)
+            ax.set_xscale("log")
+            ax.set_xlim(1, max_epoch)
             ax.set_ylim(0.0, ymax)
             ax.set_yticks((0.0, 0.25, 0.5))
             ax.tick_params(direction="out", length=2.5, width=0.65)
@@ -961,6 +1075,18 @@ def plot_entropy_combined(
         entropy_axes.append(row_axes)
 
     interval_axes: list[plt.Axes] = []
+    minimum_peak = min(
+        peak
+        for peak, _, _ in milestones.values()
+    )
+    maximum_decay = max(
+        decay
+        for _, _, decay in milestones.values()
+    )
+    shared_interval_limits = (
+        max(0.8, minimum_peak / 1.8),
+        maximum_decay * 10.0,
+    )
     for column, profile in enumerate(profiles):
         ax = fig.add_subplot(grid[4, column])
         interval_axes.append(ax)
@@ -971,17 +1097,17 @@ def plot_entropy_combined(
             show_title=False,
             show_ylabel=column == 0,
             right_padding=10.0,
+            x_limits=shared_interval_limits,
         )
     bottom_position = interval_axes[0].get_position()
-    fig.legend(
+    interval_axes[-1].legend(
         handles=entropy_milestone_handles(decay_fraction),
         loc="lower right",
-        bbox_to_anchor=(0.99, bottom_position.y1 + 0.002),
-        ncol=2,
-        borderaxespad=0.0,
-        handletextpad=0.35,
-        columnspacing=1.0,
-        fontsize=5.8,
+        bbox_to_anchor=(0.99, 0.02),
+        borderaxespad=0.2,
+        handletextpad=0.25,
+        labelspacing=0.55,
+        fontsize=5.4,
     )
 
     top_position = entropy_axes[0][0].get_position()
@@ -1248,94 +1374,50 @@ def plot_structural_observability_redesign(
     profiles: list[ProfileData],
     output_dir: Path,
 ) -> Path:
-    """Show the unobservable remainder as aligned lifting-specific curves."""
-    fig, axes = plt.subplots(
-        1,
-        len(profiles),
-        figsize=(FIGURE_WIDTH, 2.45),
-        sharex=True,
-        sharey=True,
-        squeeze=False,
+    """Show three higher-order observability curves in a compact panel."""
+    plotted_q = tuple(q for q in Q_VALUES if q <= 16)
+    profiles_by_key = {profile.spec.key: profile for profile in profiles}
+    series = (
+        ("Hyperedges", profiles_by_key["hypergraph"], "#2563EB"),
+        ("Cells", profiles_by_key["cell_basis"], "#D97706"),
+        ("Simplices", profiles_by_key["simplicial"], "#7C3AED"),
     )
-    axes_list = list(axes.flat)
-
-    for column, (ax, profile) in enumerate(
-        zip(axes_list, profiles, strict=True)
-    ):
-        unobservable = [
-            100.0 * (1.0 - value) for value in observable_values(profile)
-        ]
-        complete_index = next(
-            (
-                index
-                for index, value in enumerate(unobservable)
-                if math.isclose(value, 0.0, abs_tol=1e-12)
-            ),
-            len(Q_VALUES) - 1,
-        )
-        plotted_q = Q_VALUES[: complete_index + 1]
-        plotted_values = unobservable[: complete_index + 1]
+    fig, ax = plt.subplots(figsize=(3.55, 2.05))
+    for label, profile, color in series:
+        values = observable_values(profile)[: len(plotted_q)]
         ax.plot(
             plotted_q,
-            plotted_values,
-            color=BLUE,
-            linewidth=1.35,
+            values,
+            color=color,
+            linewidth=1.45,
             marker="o",
-            markersize=3.1,
+            markersize=4.0,
             markerfacecolor="white",
-            markeredgewidth=0.85,
+            markeredgecolor=color,
+            markeredgewidth=1.0,
+            label=label,
             zorder=3,
         )
-        ax.scatter(
-            plotted_q[-1],
-            plotted_values[-1],
-            marker="s",
-            s=20,
-            color=INK,
-            zorder=4,
-        )
-
-        complete_q = plotted_q[-1]
-        ax.set_title(
-            profile.spec.label,
-            fontsize=7.6,
-            fontweight="semibold",
-            pad=15,
-        )
-        ax.text(
-            0.5,
-            1.025,
-            rf"$|S^\ast|={target_count(profile):,}$"
-            rf"  ·  complete at $q={complete_q}$",
-            transform=ax.transAxes,
-            ha="center",
-            va="bottom",
-            fontsize=5.9,
-            color=MID,
-        )
-        ax.set_xscale("log", base=2)
-        ax.set_xlim(0.85, 38.0)
-        ax.set_ylim(-2.0, 102.0)
-        ax.set_xticks(Q_VALUES)
-        ax.set_xticklabels([str(q) for q in Q_VALUES])
-        ax.set_yticks((0.0, 25.0, 50.0, 75.0, 100.0))
-        ax.yaxis.set_major_formatter(PercentFormatter(xmax=100.0, decimals=0))
-        ax.set_xlabel(r"$q$")
-        ax.axhline(100.0, color=GRID, linewidth=0.65, zorder=0)
-        ax.grid(False)
-        ax.tick_params(direction="out", length=2.7, width=0.65)
-        if column == 0:
-            ax.set_ylabel("Unobservable structures")
-        else:
-            ax.tick_params(axis="y", labelleft=False)
-
-    fig.subplots_adjust(
-        left=0.085,
-        right=0.995,
-        top=0.80,
-        bottom=0.20,
-        wspace=0.14,
+    ax.set_xscale("log", base=2)
+    ax.set_xlim(0.85, 18.0)
+    ax.set_ylim(0.5, 1.015)
+    ax.set_xticks(plotted_q)
+    ax.set_xticklabels([str(q) for q in plotted_q])
+    ax.set_yticks((0.5, 0.75, 1.0))
+    ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
+    ax.set_xlabel(r"$q$")
+    ax.axhline(1.0, color=GRID, linewidth=0.65, zorder=0)
+    ax.grid(False)
+    ax.tick_params(direction="out", length=2.7, width=0.65)
+    ax.legend(
+        loc="lower right",
+        fontsize=5.7,
+        handlelength=2.0,
+        handletextpad=0.45,
+        labelspacing=0.45,
+        borderaxespad=0.55,
     )
+    fig.subplots_adjust(left=0.13, right=0.985, top=0.98, bottom=0.20)
     return save_figure(
         fig,
         output_dir,
@@ -1361,6 +1443,11 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--max-epoch", type=int, default=200)
+    parser.add_argument(
+        "--combined-entropy-max-epoch",
+        type=int,
+        default=DEFAULT_COMBINED_ENTROPY_MAX_EPOCH,
+    )
     parser.add_argument("--focus-q", type=int, default=8)
     parser.add_argument("--sample-every", type=int, default=SAMPLE_EVERY)
     parser.add_argument(
@@ -1412,6 +1499,12 @@ def main() -> None:
         profiles,
         decay_fraction=args.entropy_decay_fraction,
     )
+    print_entropy_peak_epochs(
+        profiles,
+        entropy_milestones,
+        max_epoch=args.max_epoch,
+        sample_every=args.sample_every,
+    )
     entropy_peak_decay = plot_entropy_peak_decay(
         profiles,
         output_dir,
@@ -1422,8 +1515,7 @@ def main() -> None:
         profiles,
         output_dir,
         entropy_milestones,
-        max_epoch=args.max_epoch,
-        sample_every=args.sample_every,
+        max_epoch=args.combined_entropy_max_epoch,
         decay_fraction=args.entropy_decay_fraction,
     )
     print(f"Wrote structural thresholds to {structural}")
