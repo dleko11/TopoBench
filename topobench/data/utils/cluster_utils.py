@@ -136,7 +136,7 @@ def _tensor_schema_entry(t: torch.Tensor) -> dict[str, Any]:
 class ClusterOnDisk(OnDiskDataset):
     """On-disk storage and metadata for Cluster-GCN training.
 
-    Builds a global partition using :class:`ClusterData`, infers a
+    Builds a global partition using METIS or random node assignment, infers a
     generic schema over all cluster subgraphs, stores them on disk, and
     writes permuted structural and feature arrays as NumPy memmaps.
 
@@ -149,6 +149,10 @@ class ClusterOnDisk(OnDiskDataset):
         graph.
     num_parts : int, optional
         Number of clusters for partitioning. Default is 10.
+    partition_method : {"metis", "random"}, optional
+        Strategy used to assign nodes to clusters. Default is "metis".
+    partition_seed : int or None, optional
+        Seed for random partitioning. Default is None.
     recursive : bool, optional
         Whether to apply recursive partitioning. Default is False.
     keep_inter_cluster_edges : bool, optional
@@ -169,6 +173,8 @@ class ClusterOnDisk(OnDiskDataset):
         *,
         graph_getter: Callable[[], Data],
         num_parts: int = 10,
+        partition_method: str = "metis",
+        partition_seed: int | None = None,
         recursive: bool = False,
         keep_inter_cluster_edges: bool = False,
         sparse_format: str = "csr",
@@ -179,6 +185,10 @@ class ClusterOnDisk(OnDiskDataset):
         self._graph_getter = graph_getter
         self._cfg = dict(
             num_parts=int(num_parts),
+            partition_method=str(partition_method).lower(),
+            partition_seed=(
+                int(partition_seed) if partition_seed is not None else None
+            ),
             recursive=bool(recursive),
             keep_inter=bool(keep_inter_cluster_edges),
             sparse_format=str(sparse_format),
@@ -187,15 +197,23 @@ class ClusterOnDisk(OnDiskDataset):
         # Bootstrap once to know the REAL schema and partition ---
         full = self._graph_getter()
 
-        cluster_data = ClusterData(
-            full,
-            num_parts=self._cfg["num_parts"],
-            recursive=self._cfg["recursive"],
-            keep_inter_cluster_edges=self._cfg["keep_inter"],
-            sparse_format=self._cfg["sparse_format"],
-            save_dir=None,
-            log=False,
-        )
+        if self._cfg["partition_method"] == "metis":
+            cluster_data = ClusterData(
+                full,
+                num_parts=self._cfg["num_parts"],
+                recursive=self._cfg["recursive"],
+                keep_inter_cluster_edges=self._cfg["keep_inter"],
+                sparse_format=self._cfg["sparse_format"],
+                save_dir=None,
+                log=False,
+            )
+        elif self._cfg["partition_method"] == "random":
+            cluster_data = self._build_random_partition(full)
+        else:
+            raise ValueError(
+                "partition_method must be either 'metis' or 'random', "
+                f"got {self._cfg['partition_method']!r}."
+            )
 
         # Discover schema across ALL parts:
         # - edge_index is always present (2, -1)
@@ -228,6 +246,62 @@ class ClusterOnDisk(OnDiskDataset):
             schema=discovered,
         )
         self._meta: dict[str, Any] | None = None
+
+    def _build_random_partition(self, data: Data) -> ClusterData:
+        """Build a ClusterData-compatible balanced random partition.
+
+        Parameters
+        ----------
+        data : Data
+            Full graph to partition.
+
+        Returns
+        -------
+        ClusterData
+            Cluster data backed by a balanced random node assignment.
+        """
+        if data.edge_index is None:
+            raise ValueError("Cannot partition a graph without edge_index.")
+        if data.num_nodes is None:
+            raise ValueError("Cannot infer num_nodes for random partitioning.")
+
+        num_nodes = int(data.num_nodes)
+        generator = torch.Generator(device=data.edge_index.device)
+        partition_seed = self._cfg["partition_seed"]
+        if partition_seed is None:
+            generator.seed()
+        else:
+            generator.manual_seed(partition_seed)
+
+        node_order = torch.randperm(
+            num_nodes,
+            generator=generator,
+            device=data.edge_index.device,
+        )
+        cluster = torch.empty(
+            num_nodes,
+            dtype=torch.long,
+            device=data.edge_index.device,
+        )
+        cluster[node_order] = (
+            torch.arange(num_nodes, device=data.edge_index.device)
+            * self._cfg["num_parts"]
+        ) // num_nodes
+
+        cluster_data = ClusterData.__new__(ClusterData)
+        cluster_data.num_parts = self._cfg["num_parts"]
+        cluster_data.recursive = self._cfg["recursive"]
+        cluster_data.keep_inter_cluster_edges = self._cfg["keep_inter"]
+        cluster_data.sparse_format = self._cfg["sparse_format"]
+        cluster_data.partition = cluster_data._partition(
+            data.edge_index,
+            cluster,
+        )
+        cluster_data.data = cluster_data._permute_data(
+            data,
+            cluster_data.partition,
+        )
+        return cluster_data
 
     @property
     def raw_file_names(self) -> list[str]:
@@ -327,6 +401,8 @@ class ClusterOnDisk(OnDiskDataset):
         # Persist partition/meta info.
         meta = {
             "num_parts": cluster_data.num_parts,
+            "partition_method": self._cfg["partition_method"],
+            "partition_seed": self._cfg["partition_seed"],
             "recursive": cluster_data.recursive,
             "keep_inter_cluster_edges": cluster_data.keep_inter_cluster_edges,
             "sparse_format": cluster_data.sparse_format,
@@ -444,6 +520,29 @@ class ClusterOnDisk(OnDiskDataset):
             Total number of partitions.
         """
         return int(self.meta["num_parts"])
+
+    @property
+    def partition_method(self) -> str:
+        """Return the node partitioning strategy.
+
+        Returns
+        -------
+        str
+            Partitioning strategy name.
+        """
+        return str(self.meta.get("partition_method", "metis"))
+
+    @property
+    def partition_seed(self) -> int | None:
+        """Return the configured random partition seed.
+
+        Returns
+        -------
+        int or None
+            Random partition seed, or None when no seed was configured.
+        """
+        value = self.meta.get("partition_seed")
+        return int(value) if value is not None else None
 
     @property
     def recursive(self) -> bool:

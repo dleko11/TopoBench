@@ -182,6 +182,9 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                     "transform": transform_cfg_container,
                     "q_val": resolved_q_val,
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
+                    "reconstruct_cross_cluster_edges": stream_cfg.get(
+                        "reconstruct_cross_cluster_edges", True
+                    ),
                     "seed": cfg.get("seed", 42),
                     "eval_cover_strategy": eval_cover_strategy,
                 }
@@ -199,6 +202,10 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 cache_num_workers=stream_cfg.get("cache_num_workers", None),
                 pin_memory=stream_cfg.get("pin_memory", False),
                 with_edge_attr=stream_cfg.get("with_edge_attr", False),
+                reconstruct_cross_cluster_edges=stream_cfg.get(
+                    "reconstruct_cross_cluster_edges", True
+                ),
+                train_shuffle=stream_cfg.get("train_shuffle", True),
                 eval_cover_strategy=eval_cover_strategy,
                 seed=cfg.get("seed", 42),
                 transform_config=transform_cfg_container,

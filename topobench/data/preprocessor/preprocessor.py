@@ -446,6 +446,10 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 cluster_params.get("keep_inter_cluster_edges", False)
             )
             sparse_format = str(cluster_params.get("sparse_format", "csr"))
+            partition_method = str(
+                cluster_params.get("partition_method", "metis")
+            )
+            partition_seed = cluster_params.get("partition_seed")
 
             # Build the ClusterOnDisk dataset inside the hash-keyed partition dir.
             # The filelock above ensures only one process runs this block; others
@@ -454,6 +458,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 root=part_dir,
                 graph_getter=lambda: full,
                 num_parts=num_parts,
+                partition_method=partition_method,
+                partition_seed=partition_seed,
                 recursive=recursive,
                 keep_inter_cluster_edges=keep_inter,
                 sparse_format=sparse_format,
@@ -511,6 +517,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             full_N = int(getattr(full, "num_nodes", train_mask_perm.shape[0]))
             meta = {
                 "num_parts": ds.num_parts,
+                "partition_method": ds.partition_method,
+                "partition_seed": ds.partition_seed,
                 "recursive": ds.recursive,
                 "keep_inter_cluster_edges": ds.keep_inter_cluster_edges,
                 "sparse_format": ds.sparse_format,
@@ -529,6 +537,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 "processed_dir": ds.processed_dir,
                 "memmap_dir": mm_dir,
                 "num_parts": int(ds.num_parts),
+                "partition_method": ds.partition_method,
+                "partition_seed": ds.partition_seed,
                 "sparse_format": str(ds.sparse_format),
                 "has_x": bool(meta["has_x"]),
                 "has_y": bool(meta["has_y"]),

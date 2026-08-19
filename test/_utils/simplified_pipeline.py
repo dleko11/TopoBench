@@ -1,8 +1,7 @@
 """Test pipeline for a particular dataset and model."""
 
 import hydra
-from lightning import Callback, Trainer
-from lightning.pytorch.loggers import CSVLogger, Logger
+from lightning.pytorch.loggers import CSVLogger
 from omegaconf import DictConfig, OmegaConf
 
 from topobench.data.preprocessor import OnDiskPreProcessor, PreProcessor
@@ -12,6 +11,7 @@ from topobench.utils import instantiate_callbacks
 from topobench.utils.config_resolvers import register_all_resolvers
 
 register_all_resolvers()
+
 
 def run(cfg: DictConfig) -> DictConfig:
     """Run pipeline with given configuration.
@@ -29,8 +29,6 @@ def run(cfg: DictConfig) -> DictConfig:
     transform_config = cfg.get("transforms", None)
 
     memory_type = cfg.dataset.loader.parameters.get("memory_type", "in_memory")
-    learning_setting = cfg.dataset.get("split_params", {}).get("learning_setting", "inductive")
-
     if memory_type == "on_disk_cluster":
         # Loads a graph in memory, performs partitioning
         preprocessor = PreProcessor(dataset, dataset_dir, None)
@@ -40,26 +38,55 @@ def run(cfg: DictConfig) -> DictConfig:
             split_params=cfg.dataset.get("split_params", {}),
             cluster_params=cfg.dataset.loader.parameters.get("cluster", {}),
             stream_params=cfg.dataset.loader.parameters.get("stream", {}),
-            dtype_policy=cfg.dataset.loader.parameters.get("dtype_policy", "preserve"),
+            dtype_policy=cfg.dataset.loader.parameters.get(
+                "dtype_policy", "preserve"
+            ),
             pack_db=True,
-            pack_memmaps=True
+            pack_memmaps=True,
         )
 
-        transform_cfg_container = OmegaConf.to_container(transform_config, resolve=True) if transform_config is not None else None
-        val_cache_fingerprint = make_hash({
-            "transform": transform_cfg_container,
-            "q_val": cfg.dataset.loader.parameters.get("stream", {}).get("q_val", None),
-            "with_edge_attr": cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
-        })
+        transform_cfg_container = (
+            OmegaConf.to_container(transform_config, resolve=True)
+            if transform_config is not None
+            else None
+        )
+        val_cache_fingerprint = make_hash(
+            {
+                "transform": transform_cfg_container,
+                "q_val": cfg.dataset.loader.parameters.get("stream", {}).get(
+                    "q_val", None
+                ),
+                "with_edge_attr": cfg.dataset.loader.parameters.get(
+                    "stream", {}
+                ).get("with_edge_attr", False),
+                "reconstruct_cross_cluster_edges": cfg.dataset.loader.parameters.get(
+                    "stream", {}
+                ).get("reconstruct_cross_cluster_edges", True),
+            }
+        )
 
         # Build streaming loaders
         datamodule = ClusterGCNDataModule(
             data_handle=handle,
             q=cfg.dataset.loader.parameters.get("stream", {}).get("q", 1),
-            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get("num_workers", 0),
-            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get("pin_memory", False),
-            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),
-            eval_cover_strategy=cfg.get("eval", {}).get("cover_strategy", "all_parts"),
+            num_workers=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "num_workers", 0
+            ),
+            pin_memory=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "pin_memory", False
+            ),
+            with_edge_attr=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "with_edge_attr", False
+            ),
+            reconstruct_cross_cluster_edges=cfg.dataset.loader.parameters.get(
+                "stream", {}
+            ).get("reconstruct_cross_cluster_edges", True),
+            train_shuffle=cfg.dataset.loader.parameters.get("stream", {}).get(
+                "train_shuffle", True
+            ),
+            eval_cover_strategy=cfg.get("eval", {}).get(
+                "cover_strategy", "all_parts"
+            ),
             seed=cfg.get("seed", 42),
             post_batch_transform=post_batch_transform,
             cache_val=True,
@@ -67,7 +94,9 @@ def run(cfg: DictConfig) -> DictConfig:
         )
     else:
         # TB standard in-memory pipeline and on-disk inductive pipeline
-        preprocessor_cls = OnDiskPreProcessor if memory_type == "on_disk" else PreProcessor
+        preprocessor_cls = (
+            OnDiskPreProcessor if memory_type == "on_disk" else PreProcessor
+        )
         preprocessor = preprocessor_cls(dataset, dataset_dir, transform_config)
 
         dataset_train, dataset_val, dataset_test = (
@@ -106,6 +135,4 @@ def run(cfg: DictConfig) -> DictConfig:
         model=model, datamodule=datamodule, ckpt_path=cfg.get("ckpt_path")
     )
     ckpt_path = trainer.checkpoint_callback.best_model_path
-    trainer.test(
-        model=model, datamodule=datamodule, ckpt_path=ckpt_path
-    )
+    trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
