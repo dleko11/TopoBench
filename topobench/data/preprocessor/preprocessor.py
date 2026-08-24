@@ -1,9 +1,12 @@
 """Preprocessor for datasets."""
 
+import copy
+import hashlib
 import json
 import logging
 import os
 import os.path as osp
+import shutil
 import time
 from typing import Any
 
@@ -25,6 +28,29 @@ from topobench.data.utils import (
 )
 from topobench.dataloader import DataloadDataset
 from topobench.transforms.data_transform import DataTransform
+
+
+def _split_mask_fingerprint(masks: dict[str, torch.Tensor]) -> str:
+    """Return a stable fingerprint for effective train/val/test masks.
+
+    Parameters
+    ----------
+    masks : dict[str, torch.Tensor]
+        Boolean-compatible train, validation, and test masks.
+
+    Returns
+    -------
+    str
+        Stable fingerprint of the effective split masks.
+    """
+    digest = hashlib.sha1()
+    for name in ("train", "val", "test"):
+        mask = masks[name].detach().to(device="cpu", dtype=torch.bool)
+        values = mask.contiguous().numpy()
+        digest.update(name.encode())
+        digest.update(str(values.shape).encode())
+        digest.update(values.tobytes())
+    return digest.hexdigest()[:16]
 
 
 class PreProcessor(torch_geometric.data.InMemoryDataset):
@@ -353,209 +379,207 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             A handle with root/processed/memmap paths, partition metadata, and
             file locations for all relevant arrays.
         """
-        # Build a stable hash from only the options that define the persisted
-        # global partition. Loader-only options such as q/num_workers must not
-        # create new part_* directories.
+        root = self.data_dir
+        processed_base = osp.join(root, "processed")
+        os.makedirs(processed_base, exist_ok=True)
+
+        # Split creation writes a shared set of split files. Serialize it so
+        # concurrent seeds cannot observe a partially generated split set.
+        split_generation_lock = osp.join(processed_base, "splits.lock")
+        with filelock.FileLock(split_generation_lock, timeout=-1):
+            dataset_train, _, _ = self.load_dataset_splits(split_params)
+
+        # Always use the split returned by the split pipeline. This is
+        # important for datasets such as Reddit and Planetoid, whose raw PyG
+        # objects already contain fixed masks that must not override a
+        # requested random split.
+        full = dataset_train.data_lst[0]
+
+        if getattr(full, "num_nodes", None) is not None:
+            num_nodes = int(full.num_nodes)
+        elif getattr(full, "x", None) is not None:
+            num_nodes = int(full.x.size(0))
+            full.num_nodes = num_nodes
+        elif getattr(full, "y", None) is not None:
+            num_nodes = int(full.y.size(0))
+            full.num_nodes = num_nodes
+        else:
+            raise ValueError("Cannot infer num_nodes from full graph.")
+
+        masks = {
+            "train": to_bool_mask(full.train_mask, num_nodes),
+            "val": to_bool_mask(full.val_mask, num_nodes),
+            "test": to_bool_mask(full.test_mask, num_nodes),
+        }
+        full.train_mask = masks["train"]
+        full.val_mask = masks["val"]
+        full.test_mask = masks["test"]
+        split_hash = _split_mask_fingerprint(masks)
+
+        if getattr(full, "edge_index", None) is None:
+            raise ValueError("Full graph has no edge_index.")
+
+        # Split masks do not affect the graph partition. Keep one structural
+        # partition and attach small split-specific mask sidecars. Feature
+        # standardization is split-dependent, so standardized datasets retain
+        # separate structural partitions.
         cluster_config = {
-            "split_params": ensure_serializable(split_params),
+            "format_version": 2,
             "cluster_params": ensure_serializable(cluster_params),
             "dtype_policy": dtype_policy,
         }
+        if split_params.get("standardize", False):
+            cluster_config["standardized_split_hash"] = split_hash
         config_hash = make_hash(cluster_config)
 
-        root = self.data_dir
-        # Each unique partition config gets its own subdirectory so that:
-        # 1. Different configs coexist without conflict.
-        # 2. Multiple concurrent processes for the *same* config are safe.
-        processed_base = osp.join(root, "processed")
         part_dir = osp.join(processed_base, f"part_{config_hash}")
-        handle_path = osp.join(part_dir, "handle.pt")
+        structural_handle_path = osp.join(part_dir, "structural_handle.pt")
         lock_path = osp.join(processed_base, f"part_{config_hash}.lock")
+        split_base = osp.join(part_dir, "splits")
+        split_dir = osp.join(split_base, f"split_{split_hash}")
+        handle_path = osp.join(split_dir, "handle.pt")
+        split_lock_path = osp.join(split_base, f"split_{split_hash}.lock")
 
-        # Fast path: partition already complete — no lock needed.
         if osp.exists(handle_path):
             logging.info(
-                f"[pack_global_partition] Reusing cached partition: {part_dir}"
+                "[pack_global_partition] Reusing cached partition and split: "
+                f"{part_dir} (split={split_hash})"
             )
             return torch.load(
                 handle_path, map_location="cpu", weights_only=False
             )
 
-        # Slow path: first runner partitions; others wait on the file-lock indefinitely.
-        os.makedirs(processed_base, exist_ok=True)
         with filelock.FileLock(lock_path, timeout=-1):
-            # Re-check inside the lock — another process may have finished
-            # while we were waiting.
-            if osp.exists(handle_path):
+            if not osp.exists(structural_handle_path):
+                if osp.isdir(part_dir):
+                    shutil.rmtree(part_dir)
+                os.makedirs(part_dir, exist_ok=True)
                 logging.info(
-                    f"[pack_global_partition] Reusing partition built by peer: {part_dir}"
+                    "[pack_global_partition] Building structural partition "
+                    f"(hash={config_hash}): {part_dir}"
                 )
+
+                structural_full = copy.copy(full)
+                for mask_name in ("train_mask", "val_mask", "test_mask"):
+                    if mask_name in structural_full:
+                        del structural_full[mask_name]
+
+                num_parts = int(cluster_params.get("num_parts", 10))
+                recursive = bool(cluster_params.get("recursive", False))
+                keep_inter = bool(
+                    cluster_params.get("keep_inter_cluster_edges", False)
+                )
+                sparse_format = str(cluster_params.get("sparse_format", "csr"))
+                ds = ClusterOnDisk(
+                    root=part_dir,
+                    graph_getter=lambda: structural_full,
+                    num_parts=num_parts,
+                    recursive=recursive,
+                    keep_inter_cluster_edges=keep_inter,
+                    sparse_format=sparse_format,
+                    backend="sqlite",
+                    transform=None,
+                    pre_filter=None,
+                )
+                _ = len(ds)
+                torch.save(ds.schema, osp.join(ds.processed_dir, "schema.pt"))
+
+                mm_dir = osp.join(ds.processed_dir, "perm_memmap")
+                structural_handle = {
+                    "root": ds.root,
+                    "processed_dir": ds.processed_dir,
+                    "memmap_dir": mm_dir,
+                    "num_parts": int(ds.num_parts),
+                    "sparse_format": str(ds.sparse_format),
+                    "has_x": getattr(full, "x", None) is not None,
+                    "has_y": getattr(full, "y", None) is not None,
+                    "has_edge_attr": getattr(full, "edge_attr", None)
+                    is not None,
+                    "config_hash": config_hash,
+                    "paths": {
+                        "partptr": osp.join(mm_dir, "partptr.npy"),
+                        "indptr": osp.join(mm_dir, "indptr.npy"),
+                        "indices": osp.join(mm_dir, "indices.npy"),
+                        "perm_to_global": osp.join(
+                            mm_dir, "perm_to_global.npy"
+                        ),
+                        "global_to_perm": osp.join(
+                            mm_dir, "global_to_perm.npy"
+                        ),
+                        "X_perm": osp.join(mm_dir, "X_perm.npy"),
+                        "y_perm": osp.join(mm_dir, "y_perm.npy"),
+                        "edge_attr_perm": osp.join(
+                            mm_dir, "edge_attr_perm.npy"
+                        ),
+                    },
+                }
+                tmp_structural_handle = structural_handle_path + ".tmp"
+                torch.save(structural_handle, tmp_structural_handle)
+                os.replace(tmp_structural_handle, structural_handle_path)
+            else:
+                logging.info(
+                    "[pack_global_partition] Reusing structural partition: "
+                    f"{part_dir}"
+                )
+
+        structural_handle = torch.load(
+            structural_handle_path, map_location="cpu", weights_only=False
+        )
+        os.makedirs(split_base, exist_ok=True)
+        with filelock.FileLock(split_lock_path, timeout=-1):
+            if osp.exists(handle_path):
                 return torch.load(
                     handle_path, map_location="cpu", weights_only=False
                 )
 
-            os.makedirs(part_dir, exist_ok=True)
+            if osp.isdir(split_dir):
+                shutil.rmtree(split_dir)
+            os.makedirs(split_dir, exist_ok=True)
             logging.info(
-                f"[pack_global_partition] Building new partition (hash={config_hash}): {part_dir}"
+                f"[pack_global_partition] Writing split sidecars: {split_dir}"
             )
-            _ = self.load_dataset_splits(split_params)
 
-            full = getattr(self.dataset, "data", None)
-
-            # num_nodes
-            if getattr(full, "num_nodes", None) is not None:
-                N = int(full.num_nodes)
-            elif getattr(full, "x", None) is not None:
-                N = int(full.x.size(0))
-                full.num_nodes = N
-            elif getattr(full, "y", None) is not None:
-                N = int(full.y.size(0))
-                full.num_nodes = N
-            else:
-                raise ValueError("Cannot infer num_nodes from full graph.")
-
-            if getattr(full, "train_mask", None) is None:
-                ds_train, ds_val, ds_test = self.load_dataset_splits(
-                    split_params
-                )
-                full = ds_train.data_lst[0]
-                full.train_mask = to_bool_mask(
-                    getattr(full, "train_mask", None), N
-                )
-                full.val_mask = to_bool_mask(
-                    getattr(full, "val_mask", None), N
-                )
-                full.test_mask = to_bool_mask(
-                    getattr(full, "test_mask", None), N
-                )
-
-            # Checks: we require a single full graph with masks.
-            if getattr(full, "edge_index", None) is None:
-                raise ValueError("Full graph has no edge_index.")
-            if getattr(full, "train_mask", None) is None:
-                raise ValueError("train_mask must exist on the full graph.")
-            if getattr(full, "val_mask", None) is None:
-                raise ValueError("val_mask must exist on the full graph.")
-            if getattr(full, "test_mask", None) is None:
-                raise ValueError("test_mask must exist on the full graph.")
-
-            # Resolve cluster config.
-            num_parts = int(cluster_params.get("num_parts", 10))
-            recursive = bool(cluster_params.get("recursive", False))
-            keep_inter = bool(
-                cluster_params.get("keep_inter_cluster_edges", False)
+            mm_dir = structural_handle["memmap_dir"]
+            node_perm = np.load(
+                structural_handle["paths"]["perm_to_global"]
+                if "perm_to_global" in structural_handle["paths"]
+                else osp.join(mm_dir, "perm_to_global.npy")
             )
-            sparse_format = str(cluster_params.get("sparse_format", "csr"))
-
-            # Build the ClusterOnDisk dataset inside the hash-keyed partition dir.
-            # The filelock above ensures only one process runs this block; others
-            # wait and then return via the re-check at the top of this block.
-            ds = ClusterOnDisk(
-                root=part_dir,
-                graph_getter=lambda: full,
-                num_parts=num_parts,
-                recursive=recursive,
-                keep_inter_cluster_edges=keep_inter,
-                sparse_format=sparse_format,
-                backend="sqlite",
-                transform=None,
-                pre_filter=None,
-            )
-            # Touch to trigger process() if not already done.
-            _ = len(ds)
-
-            # Save schema for future use
-            torch.save(ds.schema, osp.join(ds.processed_dir, "schema.pt"))
-
-            # Write permuted split masks into the memmap bundle.
-            mm_dir = osp.join(ds.processed_dir, "perm_memmap")
-            os.makedirs(mm_dir, exist_ok=True)
-
-            P = ds.partition
-            node_perm = P.node_perm.cpu().numpy()
+            partptr = np.load(structural_handle["paths"]["partptr"])
 
             def _to_numpy_bool(mask: torch.Tensor) -> np.ndarray:
                 return mask.view(-1)[node_perm].to(torch.bool).cpu().numpy()
 
-            train_mask_perm = _to_numpy_bool(full.train_mask)
-            val_mask_perm = _to_numpy_bool(full.val_mask)
-            test_mask_perm = _to_numpy_bool(full.test_mask)
+            mask_paths: dict[str, str] = {}
+            parts_paths: dict[str, str] = {}
+            for split_name, mask in masks.items():
+                mask_perm = _to_numpy_bool(mask)
+                mask_path = osp.join(split_dir, f"{split_name}_mask_perm.npy")
+                np.save(mask_path, mask_perm)
+                mask_paths[split_name] = mask_path
 
-            np.save(osp.join(mm_dir, "train_mask_perm.npy"), train_mask_perm)
-            np.save(osp.join(mm_dir, "val_mask_perm.npy"), val_mask_perm)
-            np.save(osp.join(mm_dir, "test_mask_perm.npy"), test_mask_perm)
+                positions = np.flatnonzero(mask_perm)
+                part_ids = (
+                    np.searchsorted(partptr, positions, side="right") - 1
+                )
+                parts_path = osp.join(
+                    split_dir, f"parts_with_{split_name}.npy"
+                )
+                np.save(parts_path, np.unique(part_ids.astype(np.int64)))
+                parts_paths[split_name] = parts_path
 
-            # Precompute which parts contain which split nodes. These are cheap
-            # sidecars of the partition and are independent of loader q.
-            partptr = np.load(osp.join(mm_dir, "partptr.npy"))
+            handle = dict(structural_handle)
+            handle["paths"] = dict(structural_handle["paths"])
+            for split_name in ("train", "val", "test"):
+                handle["paths"][f"{split_name}_mask_perm"] = mask_paths[
+                    split_name
+                ]
+                handle["paths"][f"parts_with_{split_name}"] = parts_paths[
+                    split_name
+                ]
+            handle["split_hash"] = split_hash
 
-            def _parts_with(mask_perm: np.ndarray) -> np.ndarray:
-                pos = np.flatnonzero(mask_perm)
-                part_ids = np.searchsorted(partptr, pos, side="right") - 1
-                return np.unique(part_ids.astype(np.int64))
-
-            np.save(
-                osp.join(mm_dir, "parts_with_train.npy"),
-                _parts_with(train_mask_perm),
-            )
-            np.save(
-                osp.join(mm_dir, "parts_with_val.npy"),
-                _parts_with(val_mask_perm),
-            )
-            np.save(
-                osp.join(mm_dir, "parts_with_test.npy"),
-                _parts_with(test_mask_perm),
-            )
-
-            # Record meta.
-            full_N = int(getattr(full, "num_nodes", train_mask_perm.shape[0]))
-            meta = {
-                "num_parts": ds.num_parts,
-                "recursive": ds.recursive,
-                "keep_inter_cluster_edges": ds.keep_inter_cluster_edges,
-                "sparse_format": ds.sparse_format,
-                "dtype_policy": dtype_policy,
-                "has_x": getattr(full, "x", None) is not None,
-                "has_y": getattr(full, "y", None) is not None,
-                "has_edge_attr": getattr(full, "edge_attr", None) is not None,
-                "N": full_N,
-            }
-            # torch.save(meta, osp.join(ds.processed_dir, "cluster_global_meta.pt"))
-            torch.save(meta, osp.join(ds.processed_dir, "cluster_meta.pt"))
-
-            # Build and return handle for TBBlockStreamDataModule.
-            handle = {
-                "root": ds.root,
-                "processed_dir": ds.processed_dir,
-                "memmap_dir": mm_dir,
-                "num_parts": int(ds.num_parts),
-                "sparse_format": str(ds.sparse_format),
-                "has_x": bool(meta["has_x"]),
-                "has_y": bool(meta["has_y"]),
-                "has_edge_attr": bool(meta["has_edge_attr"]),
-                "paths": {
-                    "partptr": osp.join(mm_dir, "partptr.npy"),
-                    "indptr": osp.join(mm_dir, "indptr.npy"),
-                    "indices": osp.join(mm_dir, "indices.npy"),
-                    "X_perm": osp.join(mm_dir, "X_perm.npy"),
-                    "y_perm": osp.join(mm_dir, "y_perm.npy"),
-                    "edge_attr_perm": osp.join(mm_dir, "edge_attr_perm.npy"),
-                    "train_mask_perm": osp.join(mm_dir, "train_mask_perm.npy"),
-                    "val_mask_perm": osp.join(mm_dir, "val_mask_perm.npy"),
-                    "test_mask_perm": osp.join(mm_dir, "test_mask_perm.npy"),
-                    "parts_with_train": osp.join(
-                        mm_dir, "parts_with_train.npy"
-                    ),
-                    "parts_with_val": osp.join(mm_dir, "parts_with_val.npy"),
-                    "parts_with_test": osp.join(mm_dir, "parts_with_test.npy"),
-                },
-            }
-            # Store config hash in handle for observability / logging.
-            handle["config_hash"] = config_hash
-            # Save handle.pt atomically at the top of part_dir.
             tmp_handle = handle_path + ".tmp"
             torch.save(handle, tmp_handle)
             os.replace(tmp_handle, handle_path)
-
             return handle
-        # End of filelock block — lock file released automatically.

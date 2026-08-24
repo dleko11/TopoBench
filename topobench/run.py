@@ -179,10 +179,10 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             val_cache_fingerprint = make_hash(
                 {
                     "partition_hash": handle.get("config_hash", None),
+                    "split_hash": handle.get("split_hash", None),
                     "transform": transform_cfg_container,
                     "q_val": resolved_q_val,
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
-                    "seed": cfg.get("seed", 42),
                     "eval_cover_strategy": eval_cover_strategy,
                 }
             )
@@ -202,8 +202,10 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 eval_cover_strategy=eval_cover_strategy,
                 seed=cfg.get("seed", 42),
                 transform_config=transform_cfg_container,
-                cache_val=True,
+                cache_val=stream_cfg.get("cache_val", True),
+                val_cache_dir=stream_cfg.get("val_cache_dir", None),
                 val_cache_fingerprint=val_cache_fingerprint,
+                cleanup_val_cache=stream_cfg.get("cleanup_val_cache", False),
             )
     else:
         with phase_tracker.track("full_graph_preprocessing"):

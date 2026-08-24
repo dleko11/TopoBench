@@ -47,6 +47,8 @@ def run(cfg: DictConfig) -> DictConfig:
 
         transform_cfg_container = OmegaConf.to_container(transform_config, resolve=True) if transform_config is not None else None
         val_cache_fingerprint = make_hash({
+            "partition_hash": handle.get("config_hash", None),
+            "split_hash": handle.get("split_hash", None),
             "transform": transform_cfg_container,
             "q_val": cfg.dataset.loader.parameters.get("stream", {}).get("q_val", None),
             "with_edge_attr": cfg.dataset.loader.parameters.get("stream", {}).get("with_edge_attr", False),

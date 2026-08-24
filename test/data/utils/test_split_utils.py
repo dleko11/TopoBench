@@ -21,6 +21,29 @@ from topobench.data.utils.split_utils import (
 )
 
 
+def test_random_splitting_preserves_training_rng_state(tmp_path):
+    """Generating split files does not replace the configured training RNG."""
+    parameters = DictConfig(
+        {
+            "data_seed": 0,
+            "data_split_dir": str(tmp_path),
+            "train_prop": 0.5,
+        }
+    )
+    np.random.seed(7)
+    torch.manual_seed(7)
+    numpy_state = np.random.get_state()
+    torch_state = torch.random.get_rng_state().clone()
+
+    random_splitting(torch.arange(20), parameters)
+
+    observed = np.random.random(4)
+    np.random.set_state(numpy_state)
+    expected = np.random.random(4)
+    assert np.array_equal(observed, expected)
+    assert torch.equal(torch.random.get_rng_state(), torch_state)
+
+
 class TestLoadInductiveSplits:
     """Test load_inductive_splits function."""
 

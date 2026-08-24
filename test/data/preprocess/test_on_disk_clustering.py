@@ -1,10 +1,10 @@
 """Unit and integration tests for the on-disk Cluster-GCN partitioning and dataloading pipeline."""
 
-import os
 import os.path as osp
 import tempfile
 from unittest.mock import MagicMock, patch
-import pytest
+
+import numpy as np
 import torch
 from torch_geometric.data import Data, InMemoryDataset
 
@@ -129,3 +129,110 @@ class TestOnDiskClusteringPipeline:
                 assert hasattr(batch, "supervised_mask")
                 assert hasattr(batch, "global_nid")
                 assert hasattr(batch, "num_nodes")
+
+    def test_random_splits_share_only_structural_partition(self, tmp_path):
+        """Different data seeds retain distinct masks without duplicating graph data."""
+        num_nodes = 8
+        edge_index = torch.tensor(
+            [
+                [0, 1, 2, 3, 4, 5, 6, 7],
+                [1, 2, 3, 4, 5, 6, 7, 0],
+            ],
+            dtype=torch.long,
+        )
+        original = Data(
+            x=torch.randn(num_nodes, 3),
+            y=torch.arange(num_nodes) % 2,
+            edge_index=edge_index,
+            train_mask=torch.tensor(
+                [True, True, False, False, False, False, False, False]
+            ),
+            val_mask=torch.tensor(
+                [False, False, True, True, False, False, False, False]
+            ),
+            test_mask=torch.tensor(
+                [False, False, False, False, True, True, True, True]
+            ),
+            num_nodes=num_nodes,
+        )
+        dataset = SyntheticGraphDataset(str(tmp_path), original)
+        preprocessor_a = PreProcessor(
+            dataset, str(tmp_path), transforms_config=None
+        )
+        preprocessor_b = PreProcessor(
+            dataset, str(tmp_path), transforms_config=None
+        )
+
+        split_a = original.clone()
+        split_a.train_mask = torch.tensor([0, 2, 4])
+        split_a.val_mask = torch.tensor([1, 3])
+        split_a.test_mask = torch.tensor([5, 6, 7])
+        split_b = original.clone()
+        split_b.train_mask = torch.tensor([1, 3, 5])
+        split_b.val_mask = torch.tensor([0, 2])
+        split_b.test_mask = torch.tensor([4, 6, 7])
+
+        dataset_a = MagicMock()
+        dataset_a.data_lst = [split_a]
+        dataset_b = MagicMock()
+        dataset_b.data_lst = [split_b]
+        cluster_params = {
+            "num_parts": 2,
+            "recursive": False,
+            "keep_inter_cluster_edges": False,
+            "sparse_format": "csr",
+        }
+
+        with patch.object(
+            PreProcessor,
+            "load_dataset_splits",
+            side_effect=[
+                (dataset_a, None, None),
+                (dataset_b, None, None),
+            ],
+        ):
+            handle_a = preprocessor_a.pack_global_partition(
+                split_params={"data_seed": 0, "standardize": False},
+                cluster_params=cluster_params,
+                stream_params={},
+            )
+            handle_b = preprocessor_b.pack_global_partition(
+                split_params={"data_seed": 1, "standardize": False},
+                cluster_params=cluster_params,
+                stream_params={},
+            )
+
+        assert handle_a["config_hash"] == handle_b["config_hash"]
+        assert handle_a["processed_dir"] == handle_b["processed_dir"]
+        assert handle_a["split_hash"] != handle_b["split_hash"]
+        assert handle_a["paths"]["X_perm"] == handle_b["paths"]["X_perm"]
+        assert (
+            handle_a["paths"]["train_mask_perm"]
+            != handle_b["paths"]["train_mask_perm"]
+        )
+
+        node_perm = np.load(handle_a["paths"]["perm_to_global"])
+        expected_train_a = np.zeros(num_nodes, dtype=bool)
+        expected_train_a[[0, 2, 4]] = True
+        stored_train_a = np.load(handle_a["paths"]["train_mask_perm"])
+        assert np.array_equal(stored_train_a, expected_train_a[node_perm])
+
+        datamodule = ClusterGCNDataModule(
+            data_handle=handle_a,
+            q=1,
+            q_val=1,
+            num_workers=0,
+            cache_num_workers=0,
+            cleanup_val_cache=True,
+        )
+        datamodule.setup("fit")
+        cache_path = datamodule._val_cache_path
+        assert cache_path is not None and osp.isdir(cache_path)
+        expected_cache_base = osp.join(handle_a["processed_dir"], "val_cache")
+        assert osp.commonpath([cache_path, expected_cache_base]) == (
+            expected_cache_base
+        )
+        cleanup_path = datamodule._val_cache_cleanup_path
+        datamodule.cleanup_validation_cache()
+        assert not osp.exists(cache_path)
+        assert cleanup_path is not None and not osp.exists(cleanup_path)

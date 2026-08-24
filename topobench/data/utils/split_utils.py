@@ -220,9 +220,9 @@ def random_splitting(labels, parameters, root=None, global_data_seed=42):
 
     # Generate splits if they do not exist
     if generate_splits:
-        # Set initial seed
-        torch.manual_seed(global_data_seed)
-        np.random.seed(global_data_seed)
+        # Use a local generator so creating split files does not overwrite the
+        # training RNG state established by the run seed.
+        rng = np.random.RandomState(global_data_seed)
         # Generate a split
         n = len(labels)
         train_num = int(n * train_prop)
@@ -231,7 +231,7 @@ def random_splitting(labels, parameters, root=None, global_data_seed=42):
         # Generate 10 splits
         for fold_n in range(10):
             # Permute indices
-            perm = torch.as_tensor(np.random.permutation(n))
+            perm = torch.as_tensor(rng.permutation(n))
 
             train_indices = perm[:train_num]
             val_indices = perm[train_num : train_num + valid_num]

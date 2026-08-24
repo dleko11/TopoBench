@@ -9,7 +9,9 @@ wandb_entity="${wandb_entity:-topobench-scalability}"
 
 TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
-STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
+STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-1}"
+CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-1}"
+MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -148,6 +150,20 @@ run_final_partitioning_suite() {
     init_experiment_environment
     detect_gpu_slots
 
+    if [[ -n "$MAX_CONCURRENT_RUNS" ]]; then
+        if ! [[ "$MAX_CONCURRENT_RUNS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: MAX_CONCURRENT_RUNS must be a positive integer." >&2
+            exit 1
+        fi
+        if (( MAX_CONCURRENT_RUNS < ${#gpus[@]} )); then
+            gpus=("${gpus[@]:0:$MAX_CONCURRENT_RUNS}")
+            slot_pids=()
+            for i in "${!gpus[@]}"; do
+                slot_pids[$i]=0
+            done
+        fi
+    fi
+
     local success_log="$LOG_DIR/$log_group/SUCCESSFUL_RUNS.log"
     local total_runs
     total_runs=$(count_selected_runs)
@@ -165,6 +181,10 @@ run_final_partitioning_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
+    echo "Stream workers: $STREAM_NUM_WORKERS"
+    echo "Validation cache workers: $CACHE_NUM_WORKERS"
+    echo "Validation cache: automatic dataset location, removed after each run"
+    echo "Maximum concurrent runs: ${MAX_CONCURRENT_RUNS:-${#gpus[@]}}"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Ensemble runs: $ENSEMBLE_RUNS"
 
@@ -230,6 +250,8 @@ run_final_partitioning_suite() {
                 "++dataset.loader.parameters.stream.q_test=${q}"
                 "dataset.loader.parameters.cluster.num_parts=${num_parts}"
                 "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
+                "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
+                "++dataset.loader.parameters.stream.cleanup_val_cache=true"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"

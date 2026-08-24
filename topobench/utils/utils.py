@@ -91,18 +91,20 @@ def task_wrapper(task_func: Callable) -> Callable:
         tuple[dict[str, Any], dict[str, Any]]
             The metric and object dictionaries returned by the task function.
         """
+        failed = False
         try:
             metric_dict, object_dict = task_func(cfg=cfg)
 
         # things to do if exception occurs
-        except Exception as ex:
+        except Exception:
+            failed = True
             # save exception to `.log` file
             log.exception("")
 
             # some hyperparameter combinations might be invalid or cause out-of-memory errors
             # so when using hparam search plugins like Optuna, you might want to disable
             # raising the below exception to avoid multirun failure
-            raise ex
+            raise
 
         # things to always do after either success or exception
         finally:
@@ -115,7 +117,7 @@ def task_wrapper(task_func: Callable) -> Callable:
 
                 if wandb.run:
                     log.info("Closing wandb!")
-                    wandb.finish()
+                    wandb.finish(exit_code=int(failed))
 
         return metric_dict, object_dict
 

@@ -1,10 +1,13 @@
 """Cluster-GCN dataloading and streaming pipeline for topological deep learning."""
 
+import atexit
 import glob
 import hashlib
+import logging
 import math
 import os
 import os.path as osp
+import shutil
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
@@ -31,6 +34,7 @@ class _HandleAdapter:
         self.processed_dir = handle["processed_dir"]
         self.num_parts = int(handle["num_parts"])
         self.sparse_format = str(handle["sparse_format"])
+        self.paths = dict(handle.get("paths", {}))
 
 
 class _PartIdListDataset(Dataset):
@@ -237,18 +241,36 @@ class BlockCSRBatchCollator:
         self.post_batch_transform = post_batch_transform
 
         mm_dir = osp.join(self.ds.processed_dir, "perm_memmap")
+
+        def _path(key: str, filename: str) -> str:
+            """Resolve a handle path with a memmap fallback.
+
+            Parameters
+            ----------
+            key : str
+                Key used to look up an explicit path in the data handle.
+            filename : str
+                Fallback filename within the partition memmap directory.
+
+            Returns
+            -------
+            str
+                Resolved array path.
+            """
+            return self.ds.paths.get(key, osp.join(mm_dir, filename))
+
         # Structural memmaps:
-        self.partptr = np.load(osp.join(mm_dir, "partptr.npy"), mmap_mode="r")
-        self.indptr = np.load(osp.join(mm_dir, "indptr.npy"), mmap_mode="r")
-        self.indices = np.load(osp.join(mm_dir, "indices.npy"), mmap_mode="r")
+        self.partptr = np.load(_path("partptr", "partptr.npy"), mmap_mode="r")
+        self.indptr = np.load(_path("indptr", "indptr.npy"), mmap_mode="r")
+        self.indices = np.load(_path("indices", "indices.npy"), mmap_mode="r")
 
         # Optional arrays:
         self.X = None
         self.Y = None
         self.EA = None
-        x_path = osp.join(mm_dir, "X_perm.npy")
-        y_path = osp.join(mm_dir, "y_perm.npy")
-        ea_path = osp.join(mm_dir, "edge_attr_perm.npy")
+        x_path = _path("X_perm", "X_perm.npy")
+        y_path = _path("y_perm", "y_perm.npy")
+        ea_path = _path("edge_attr_perm", "edge_attr_perm.npy")
         if osp.exists(x_path):
             self.X = np.load(x_path, mmap_mode="r")
         if osp.exists(y_path):
@@ -257,9 +279,9 @@ class BlockCSRBatchCollator:
             self.EA = np.load(ea_path, mmap_mode="r")
 
         # Split masks (permuted)
-        m_train = osp.join(mm_dir, "train_mask_perm.npy")
-        m_val = osp.join(mm_dir, "val_mask_perm.npy")
-        m_test = osp.join(mm_dir, "test_mask_perm.npy")
+        m_train = _path("train_mask_perm", "train_mask_perm.npy")
+        m_val = _path("val_mask_perm", "val_mask_perm.npy")
+        m_test = _path("test_mask_perm", "test_mask_perm.npy")
         if not (
             osp.exists(m_train) and osp.exists(m_val) and osp.exists(m_test)
         ):
@@ -485,8 +507,13 @@ def _process_and_save_batch(task):
     data = data.cpu()
 
     tmp_path = final_path + f".tmp.{os.getpid()}"
-    torch.save(data, tmp_path)
-    os.replace(tmp_path, final_path)
+    try:
+        torch.save(data, tmp_path)
+        os.replace(tmp_path, final_path)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
     return i, final_path, time.time() - start_time
 
@@ -539,6 +566,9 @@ class ClusterGCNDataModule(LightningDataModule):
         Custom validation cache directory path. Default is None.
     val_cache_fingerprint : str or int, optional
         Fingerprint to differentiate cache runs. Default is None.
+    cleanup_val_cache : bool, optional
+        If True, remove this run's validation cache when the process exits.
+        Default is False.
     """
 
     def __init__(
@@ -563,6 +593,7 @@ class ClusterGCNDataModule(LightningDataModule):
         cache_val: bool = True,
         val_cache_dir: str | None = None,
         val_cache_fingerprint: int | str | None = None,
+        cleanup_val_cache: bool = False,
     ) -> None:
         super().__init__()
 
@@ -634,7 +665,12 @@ class ClusterGCNDataModule(LightningDataModule):
         self.cache_val = bool(cache_val)
         self.val_cache_dir = val_cache_dir
         self.val_cache_fingerprint = val_cache_fingerprint
+        self.cleanup_val_cache = bool(cleanup_val_cache)
         self._val_cache_files: list[str] | None = None
+        self._val_cache_path: str | None = None
+        self._val_cache_cleanup_path: str | None = None
+        if self.cleanup_val_cache:
+            atexit.register(self.cleanup_validation_cache)
 
     def _part_ids_for_split(self, split: str) -> Iterable[int]:
         """Return cluster IDs to iterate for a given split.
@@ -845,6 +881,9 @@ class ClusterGCNDataModule(LightningDataModule):
         base_dir = self.val_cache_dir
         if base_dir is None:
             base_dir = osp.join(self.ds_adapter.processed_dir, "val_cache")
+            if self.cleanup_val_cache:
+                base_dir = osp.join(base_dir, f"run_{os.getpid()}")
+                self._val_cache_cleanup_path = base_dir
         os.makedirs(base_dir, exist_ok=True)
 
         # Decide cache identifier (fingerprint recommended)
@@ -854,9 +893,11 @@ class ClusterGCNDataModule(LightningDataModule):
             cache_id = str(
                 _make_hash(
                     {
+                        "partition_hash": self.handle.get("config_hash", None),
+                        "split_hash": self.handle.get("split_hash", None),
+                        "transform": self.transform_config,
                         "q_val": self.q_val,
                         "with_edge_attr": int(self.with_edge_attr),
-                        "seed": self.seed,
                         "eval_cover_strategy": self.eval_cover_strategy,
                     }
                 )
@@ -864,6 +905,9 @@ class ClusterGCNDataModule(LightningDataModule):
 
         cache_dir = osp.join(base_dir, f"val_{cache_id}")
         os.makedirs(cache_dir, exist_ok=True)
+        self._val_cache_path = cache_dir
+        if self._val_cache_cleanup_path is None:
+            self._val_cache_cleanup_path = cache_dir
 
         existing = sorted(glob.glob(osp.join(cache_dir, "batch_*.pt")))
         complete_marker = osp.join(cache_dir, "_COMPLETE")
@@ -879,8 +923,11 @@ class ClusterGCNDataModule(LightningDataModule):
                 self._val_cache_files = existing
                 return
 
-            for f in existing:
+            stale_files = glob.glob(osp.join(cache_dir, "batch_*.pt*"))
+            for f in stale_files:
                 os.remove(f)
+            if osp.exists(complete_marker):
+                os.remove(complete_marker)
 
             part_ids = np.asarray(
                 list(self._part_ids_for_split("val")), dtype=np.int64
@@ -903,7 +950,6 @@ class ClusterGCNDataModule(LightningDataModule):
             }
             with track_phase("val_cache_build", extra=cache_tracking_extra):
                 if num_workers > 1:
-                    import logging
                     from concurrent.futures import (
                         ProcessPoolExecutor,
                         as_completed,
@@ -952,7 +998,6 @@ class ClusterGCNDataModule(LightningDataModule):
                         active_split="val",
                         post_batch_transform=self.post_batch_transform,
                     )
-                    import logging
 
                     logging.info(
                         f"[VAL] Building cache with serial fallback: {len(batches)} batches"
@@ -970,6 +1015,26 @@ class ClusterGCNDataModule(LightningDataModule):
                     f.write("done")
 
         self._val_cache_files = cache_files
+
+    def cleanup_validation_cache(self) -> None:
+        """Remove the validation cache owned by this datamodule."""
+        cleanup_path = self._val_cache_cleanup_path
+        if not self.cleanup_val_cache or cleanup_path is None:
+            return
+        try:
+            shutil.rmtree(cleanup_path)
+        except FileNotFoundError:
+            pass
+        except OSError as error:
+            logging.warning(
+                "Failed to remove validation cache %s: %s",
+                cleanup_path,
+                error,
+            )
+            return
+        self._val_cache_files = None
+        self._val_cache_path = None
+        self._val_cache_cleanup_path = None
 
     def train_dataloader(self) -> DataLoader:
         """Return dataloader for the training split.
