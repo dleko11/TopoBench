@@ -22,6 +22,7 @@ SCCNN_NEIGHBORHOODS = [
     "down_laplacian-2",
     "up_laplacian-2",
 ]
+MATRIX_FREE_NEIGHBORHOODS = ["incidence-1", "incidence-2"]
 
 
 def test_selective_matches_reference_for_sccnn_neighborhoods(simple_graph_1):
@@ -154,6 +155,41 @@ def test_selective_preserves_edge_features():
     )
 
 
+def test_selective_lists_each_triangle_once_in_two_dimensional_lifting():
+    """Verify direct triangle listing on overlapping maximal cliques."""
+    edges = [
+        (0, 1),
+        (0, 2),
+        (0, 3),
+        (1, 2),
+        (1, 3),
+        (2, 3),
+        (2, 4),
+        (3, 4),
+    ]
+    edge_index = torch.tensor(
+        [
+            [node for edge in edges for node in (edge[0], edge[1])],
+            [node for edge in edges for node in (edge[1], edge[0])],
+        ],
+        dtype=torch.long,
+    )
+    data = torch_geometric.data.Data(
+        x=torch.randn(5, 3), edge_index=edge_index, num_nodes=5
+    )
+    neighborhoods = ["hodge_laplacian-0"]
+
+    ref = SimplicialCliqueLifting(
+        complex_dim=2, signed=False, neighborhoods=neighborhoods
+    ).forward(data.clone())
+    selective = SimplicialCliqueLiftingSelective(
+        complex_dim=2, signed=False, neighborhoods=neighborhoods
+    ).forward(data.clone())
+
+    assert selective.shape == [5, 8, 5]
+    _assert_common_lifted_data(ref, selective, max_rank=2)
+
+
 @pytest.mark.parametrize(
     ("edge_index", "expected_shape"),
     [
@@ -195,11 +231,7 @@ def test_selective_handles_sparse_edge_cases(edge_index, expected_shape):
     [
         (
             "scn",
-            [
-                "hodge_laplacian-0",
-                "hodge_laplacian-1",
-                "hodge_laplacian-2",
-            ],
+            MATRIX_FREE_NEIGHBORHOODS,
         ),
         (
             "sccn",
@@ -210,7 +242,7 @@ def test_selective_handles_sparse_edge_cases(edge_index, expected_shape):
             ],
         ),
         ("sccnn", SCCNN_NEIGHBORHOODS),
-        ("sccnn_custom", SCCNN_NEIGHBORHOODS),
+        ("sccnn_custom", MATRIX_FREE_NEIGHBORHOODS),
         ("san", ["up_laplacian-1", "down_laplacian-1"]),
     ],
 )

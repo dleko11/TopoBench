@@ -2,6 +2,7 @@
 
 from itertools import combinations
 
+import igraph as ig
 import networkx as nx
 import numpy as np
 import torch
@@ -46,19 +47,35 @@ def build_clique_complex_incidences(
             else torch.empty((0, 2), dtype=torch.long)
         )
 
-    cliques = list(nx.find_cliques(graph)) if complex_dim >= 2 else []
-    for rank in range(2, complex_dim + 1):
-        simplices = set()
-        for clique in cliques:
-            clique = sorted(clique)
-            if len(clique) >= rank + 1:
-                simplices.update(combinations(clique, rank + 1))
-
-        simplices_by_rank[rank] = (
-            torch.tensor(sorted(simplices), dtype=torch.long)
-            if simplices
-            else torch.empty((0, rank + 1), dtype=torch.long)
+    if complex_dim == 2:
+        clique_graph = ig.Graph(
+            n=num_nodes,
+            edges=sorted_edges,
+            directed=False,
         )
+        triangles = sorted(
+            tuple(sorted(triangle))
+            for triangle in clique_graph.list_triangles()
+        )
+        simplices_by_rank[2] = (
+            torch.tensor(triangles, dtype=torch.long)
+            if triangles
+            else torch.empty((0, 3), dtype=torch.long)
+        )
+    elif complex_dim > 2:
+        cliques = list(nx.find_cliques(graph))
+        for rank in range(2, complex_dim + 1):
+            simplices = set()
+            for clique in cliques:
+                clique = sorted(clique)
+                if len(clique) >= rank + 1:
+                    simplices.update(combinations(clique, rank + 1))
+
+            simplices_by_rank[rank] = (
+                torch.tensor(sorted(simplices), dtype=torch.long)
+                if simplices
+                else torch.empty((0, rank + 1), dtype=torch.long)
+            )
 
     incidences = {
         0: torch.sparse_coo_tensor(

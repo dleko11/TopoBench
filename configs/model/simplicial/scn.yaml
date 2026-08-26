@@ -3,9 +3,8 @@ _target_: topobench.model.TBModel
 model_name: scn
 model_domain: simplicial
 neighborhoods:
-  - hodge_laplacian-0
-  - hodge_laplacian-1
-  - hodge_laplacian-2
+  - incidence-1
+  - incidence-2
 
 feature_encoder:
   _target_: topobench.nn.encoders.${model.feature_encoder.encoder_name}
@@ -19,7 +18,7 @@ feature_encoder:
     - 2
 
 backbone:
-  _target_: topomodelx.nn.simplicial.scn2.SCN2
+  _target_: topobench.nn.backbones.simplicial.scn.SCN2MatrixFree
   in_channels_0: ${model.feature_encoder.out_channels}
   in_channels_1: ${model.feature_encoder.out_channels}
   in_channels_2: ${model.feature_encoder.out_channels}
