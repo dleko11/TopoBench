@@ -25,6 +25,9 @@ class AllCellFeatureEncoder(AbstractFeatureEncoder):
         Dropout for the BaseEncoders (default: 0).
     selected_dimensions : list[int], optional
         List of indexes to apply the BaseEncoders to (default: None).
+    lift_encoded_features : bool, optional
+        Encode node features first, then project them to higher ranks using
+        incidence matrices instead of encoding pre-lifted features.
     **kwargs : dict, optional
         Additional keyword arguments.
     """
@@ -35,12 +38,14 @@ class AllCellFeatureEncoder(AbstractFeatureEncoder):
         out_channels,
         proj_dropout=0,
         selected_dimensions=None,
+        lift_encoded_features=False,
         **kwargs,
     ):
         super().__init__()
 
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.lift_encoded_features = bool(lift_encoded_features)
         self.dimensions = (
             selected_dimensions
             if (
@@ -48,7 +53,14 @@ class AllCellFeatureEncoder(AbstractFeatureEncoder):
             )  # and len(selected_dimensions) <= len(self.in_channels))
             else range(len(self.in_channels))
         )
+        if self.lift_encoded_features and 0 not in self.dimensions:
+            raise ValueError(
+                "Encoded feature lifting requires rank 0 in "
+                "selected_dimensions."
+            )
         for i in self.dimensions:
+            if self.lift_encoded_features and i > 0:
+                continue
             setattr(
                 self,
                 f"encoder_{i}",
@@ -83,12 +95,75 @@ class AllCellFeatureEncoder(AbstractFeatureEncoder):
             data.x_0 = data.x
 
         for i in self.dimensions:
+            if self.lift_encoded_features and i > 0:
+                self._project_to_rank(data, i)
+                continue
             if hasattr(data, f"x_{i}") and hasattr(self, f"encoder_{i}"):
                 batch = getattr(data, f"batch_{i}")
                 data[f"x_{i}"] = getattr(self, f"encoder_{i}")(
                     data[f"x_{i}"], batch
                 )
         return data
+
+    @staticmethod
+    def _project_to_rank(data: torch_geometric.data.Data, rank: int) -> None:
+        r"""Project encoded features and batch assignments to one rank.
+
+        Parameters
+        ----------
+        data : torch_geometric.data.Data
+            Data containing the lower-rank features and incidence matrix.
+        rank : int
+            Target rank.
+        """
+        incidence_key = f"incidence_{rank}"
+        lower_features_key = f"x_{rank - 1}"
+        if not hasattr(data, incidence_key):
+            raise ValueError(
+                f"Encoded feature lifting requires {incidence_key}."
+            )
+        if not hasattr(data, lower_features_key):
+            raise ValueError(
+                f"Encoded feature lifting requires {lower_features_key}."
+            )
+
+        incidence = data[incidence_key]
+        lower_features = data[lower_features_key]
+        if incidence.layout == torch.strided:
+            absolute_incidence = incidence.abs().to(dtype=lower_features.dtype)
+            transpose = absolute_incidence.transpose(0, 1)
+            higher_features = torch.mm(transpose, lower_features)
+            lower_indices, higher_indices = torch.nonzero(
+                absolute_incidence, as_tuple=True
+            )
+        else:
+            incidence = incidence.to_sparse_coo().coalesce()
+            absolute_incidence = torch.sparse_coo_tensor(
+                incidence.indices(),
+                incidence.values().abs().to(dtype=lower_features.dtype),
+                incidence.size(),
+                dtype=lower_features.dtype,
+                device=incidence.device,
+            ).coalesce()
+            transpose = absolute_incidence.transpose(0, 1).coalesce()
+            higher_features = torch.sparse.mm(transpose, lower_features)
+            lower_indices, higher_indices = absolute_incidence.indices()
+        data[f"x_{rank}"] = higher_features
+
+        lower_batch = data.get(f"batch_{rank - 1}")
+        if lower_batch is None:
+            lower_batch = torch.zeros(
+                lower_features.size(0),
+                dtype=torch.long,
+                device=lower_features.device,
+            )
+        higher_batch = torch.zeros(
+            incidence.size(1),
+            dtype=torch.long,
+            device=lower_features.device,
+        )
+        higher_batch.scatter_(0, higher_indices, lower_batch[lower_indices])
+        data[f"batch_{rank}"] = higher_batch
 
 
 class BaseEncoder(torch.nn.Module):
