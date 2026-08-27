@@ -548,6 +548,8 @@ class ClusterGCNDataModule(LightningDataModule):
         If True, batches include edge attributes. Default is False.
     eval_cover_strategy : str, optional
         Strategy for evaluation coverage. Default is "all_parts".
+    val_shuffle : bool, optional
+        If True, shuffle validation parts deterministically. Default is False.
     seed : int, optional
         Random seed for part shuffling. Default is 42.
     device : torch.device or None, optional
@@ -584,6 +586,7 @@ class ClusterGCNDataModule(LightningDataModule):
         pin_memory: bool = False,
         with_edge_attr: bool = False,
         eval_cover_strategy: str = "all_parts",
+        val_shuffle: bool = False,
         seed: int = 42,
         device: torch.device | None = None,
         persistent_workers: bool | None = None,
@@ -624,6 +627,7 @@ class ClusterGCNDataModule(LightningDataModule):
         self.pin_memory = bool(pin_memory)
         self.with_edge_attr = bool(with_edge_attr)
         self.eval_cover_strategy = str(eval_cover_strategy)
+        self.val_shuffle = bool(val_shuffle)
         self.seed = int(seed)
         self.device = device
         self.persistent_workers = (
@@ -754,6 +758,27 @@ class ClusterGCNDataModule(LightningDataModule):
             return self.q_test
         return self.q
 
+    def _validation_part_ids(self) -> np.ndarray:
+        """Return validation parts in their configured deterministic order.
+
+        Returns
+        -------
+        numpy.ndarray
+            Ordered validation partition IDs.
+        """
+        part_ids = np.asarray(
+            list(self._part_ids_for_split("val")), dtype=np.int64
+        )
+        if not self.val_shuffle:
+            return part_ids
+
+        generator = torch.Generator()
+        generator.manual_seed(self.seed)
+        permutation = torch.randperm(
+            len(part_ids), generator=generator
+        ).numpy()
+        return part_ids[permutation]
+
     @property
     def num_parts(self) -> int:
         """Return the number of partition parts.
@@ -773,6 +798,7 @@ class ClusterGCNDataModule(LightningDataModule):
         q: int | None = None,
         seed: int | None = None,
         cover_parts: str = "split",
+        part_ids: Iterable[int] | None = None,
     ) -> DataLoader:
         """Build and return a DataLoader for a given split.
 
@@ -788,16 +814,19 @@ class ClusterGCNDataModule(LightningDataModule):
             Seed used when ``shuffle`` is True. Defaults to the datamodule seed.
         cover_parts : {"split", "all"}, optional
             Part coverage mode. Default is ``"split"``.
+        part_ids : iterable of int or None, optional
+            Explicit partition ordering. Default is None.
 
         Returns
         -------
         DataLoader
             DataLoader for the split.
         """
-        part_ids = self._part_ids_for_coverage(
-            split=split,
-            cover_parts=cover_parts,
-        )
+        if part_ids is None:
+            part_ids = self._part_ids_for_coverage(
+                split=split,
+                cover_parts=cover_parts,
+            )
         part_ds = _PartIdListDataset(part_ids)
         batch_size = self._q_for_split(split) if q is None else int(q)
         if batch_size <= 0:
@@ -929,9 +958,7 @@ class ClusterGCNDataModule(LightningDataModule):
             if osp.exists(complete_marker):
                 os.remove(complete_marker)
 
-            part_ids = np.asarray(
-                list(self._part_ids_for_split("val")), dtype=np.int64
-            )
+            part_ids = self._validation_part_ids()
 
             batches = [
                 part_ids[i : i + self.q_val].tolist()
@@ -1075,7 +1102,11 @@ class ClusterGCNDataModule(LightningDataModule):
                 persistent_workers=False,
             )
 
-        return self._build_loader(split="val", shuffle=False)
+        return self._build_loader(
+            split="val",
+            shuffle=False,
+            part_ids=self._validation_part_ids(),
+        )
 
     def test_dataloader(self) -> DataLoader:
         """Return dataloader for the test split.

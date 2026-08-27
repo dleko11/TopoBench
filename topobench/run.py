@@ -176,6 +176,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             eval_cover_strategy = cfg.get("eval", {}).get(
                 "cover_strategy", "all_parts"
             )
+            val_shuffle = bool(stream_cfg.get("val_shuffle", False))
             val_cache_fingerprint = make_hash(
                 {
                     "partition_hash": handle.get("config_hash", None),
@@ -184,6 +185,8 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                     "q_val": resolved_q_val,
                     "with_edge_attr": stream_cfg.get("with_edge_attr", False),
                     "eval_cover_strategy": eval_cover_strategy,
+                    "val_shuffle": val_shuffle,
+                    "seed": cfg.get("seed", 42) if val_shuffle else None,
                 }
             )
 
@@ -200,6 +203,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 pin_memory=stream_cfg.get("pin_memory", False),
                 with_edge_attr=stream_cfg.get("with_edge_attr", False),
                 eval_cover_strategy=eval_cover_strategy,
+                val_shuffle=val_shuffle,
                 seed=cfg.get("seed", 42),
                 transform_config=transform_cfg_container,
                 cache_val=stream_cfg.get("cache_val", True),
