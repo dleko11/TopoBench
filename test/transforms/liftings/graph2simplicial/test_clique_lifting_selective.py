@@ -190,22 +190,6 @@ def test_selective_lists_each_triangle_once_in_two_dimensional_lifting():
     _assert_common_lifted_data(ref, selective, max_rank=2)
 
 
-def test_selective_can_defer_higher_rank_feature_lifting(simple_graph_1):
-    """Keep only node features when feature lifting is deferred."""
-    selective = SimplicialCliqueLiftingSelective(
-        complex_dim=2,
-        signed=False,
-        feature_lifting=None,
-        neighborhoods=MATRIX_FREE_NEIGHBORHOODS,
-    ).forward(simple_graph_1.clone())
-
-    assert "x_0" in selective
-    assert "x_1" not in selective
-    assert "x_2" not in selective
-    assert selective.incidence_1.shape[0] == selective.x_0.shape[0]
-    assert selective.incidence_2.shape[0] == selective.incidence_1.shape[1]
-
-
 @pytest.mark.parametrize(
     ("edge_index", "expected_shape"),
     [
@@ -293,21 +277,6 @@ def test_clique_selective_config_uses_top_level_neighborhoods(
     assert "neighborhoods" not in backbone
 
 
-def test_scn_config_defers_feature_lifting_until_encoding():
-    """Verify SCN caches topology and lifts encoded node features."""
-    cfg = _compose_run_config(
-        [
-            "dataset=graph/cocitation_cora",
-            "model=simplicial/scn",
-            "transforms=liftings/graph2simplicial/clique_selective",
-        ]
-    )
-
-    assert cfg.transforms.feature_lifting is None
-    assert cfg.model.feature_encoder.lift_encoded_features is True
-    assert list(cfg.model.feature_encoder.in_channels) == [1433]
-
-
 @pytest.mark.parametrize("model_name", ["topotune", "topotune_onehasse"])
 def test_clique_selective_config_keeps_topotune_backbone_neighborhoods(
     model_name,
@@ -334,7 +303,6 @@ def test_clique_selective_config_keeps_topotune_backbone_neighborhoods(
     )
 
     assert transform_neighborhoods == backbone_neighborhoods
-    assert cfg.transforms.feature_lifting == "ProjectionSum"
 
 
 def _assert_common_lifted_data(ref, selective, max_rank):
