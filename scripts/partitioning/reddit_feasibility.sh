@@ -55,7 +55,7 @@ append_run_args() {
         "++dataset.loader.parameters.stream.cache_num_workers=1"
         "++dataset.loader.parameters.stream.cache_val=false"
         "++dataset.loader.parameters.stream.val_shuffle=true"
-        "trainer.num_sanity_val_steps=0"
+        "+trainer.num_sanity_val_steps=0"
         "test=false"
         "extras.print_config=false"
         "extras.enforce_tags=false"
