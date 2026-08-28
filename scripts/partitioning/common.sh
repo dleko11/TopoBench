@@ -334,6 +334,15 @@ run_dataset_suite() {
                                                     fi
                                                 fi
 
+                                                if declare -F append_run_args >/dev/null; then
+                                                    append_run_args \
+                                                        "$mode" \
+                                                        "$q_value" \
+                                                        "$num_clusters" \
+                                                        "$model_alias" \
+                                                        "$data_seed"
+                                                fi
+
                                                 if [[ "$DRY_RUN" == "true" ]]; then
                                                     printf '[DRY_RUN] %s\n' "${cmd[*]}"
                                                     slot_pids[$assigned_slot]=0
