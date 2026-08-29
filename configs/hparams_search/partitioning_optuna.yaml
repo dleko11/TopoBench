@@ -3,7 +3,7 @@
 defaults:
   - override /hydra/sweeper: optuna
 
-optimized_metric: best_epoch/${get_monitor_metric:${dataset.parameters.task},${dataset.parameters.monitor_metric}}
+optimized_metric: best_monitored_score
 
 hydra:
   mode: MULTIRUN

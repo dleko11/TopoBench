@@ -328,6 +328,10 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
 
     # Merge train and test metrics
     metric_dict = {**train_metrics}
+    if cfg.get("train"):
+        metric_dict["best_monitored_score"] = (
+            trainer.checkpoint_callback.best_model_score
+        )
 
     return metric_dict, object_dict
 
