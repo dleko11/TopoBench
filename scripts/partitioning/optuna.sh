@@ -8,15 +8,20 @@ KEEP_SUCCESS_LOGS="${KEEP_SUCCESS_LOGS:-true}"
 wandb_entity="${wandb_entity:-topobench-scalability}"
 
 N_TRIALS="${N_TRIALS:-50}"
+OPTUNA_N_JOBS="${OPTUNA_N_JOBS:-5}"
+OPTUNA_N_STARTUP_TRIALS="${OPTUNA_N_STARTUP_TRIALS:-10}"
 TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
-STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-8}"
+STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-0}"
 CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-$STREAM_NUM_WORKERS}"
+CACHE_VAL="${CACHE_VAL:-false}"
+VAL_SHUFFLE="${VAL_SHUFFLE:-true}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
 CHECK_VAL_EVERY_N_EPOCH="${CHECK_VAL_EVERY_N_EPOCH:-5}"
 EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-5}"
+OPTIMIZED_METRIC="${OPTIMIZED_METRIC:-}"
 
 LR_SPACE="${LR_SPACE:-choice(1e-5,1e-4,1e-3,1e-2)}"
 WEIGHT_DECAY_SPACE="${WEIGHT_DECAY_SPACE:-choice(0,1e-5,1e-4,1e-3)}"
@@ -42,8 +47,8 @@ DATASET_SPECS=(
     "coauthor_physics::graph/coauthor_physics_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::50"
     "cora_full::graph/cocitation_cora_full_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
     "amazon_ratings::graph/amazon_ratings_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
-    "reddit::graph/reddit_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::20"
-    "ogbn_products::graph/ogbn_products_for_partitioning::choice(1000,1500,2000,3000)::choice(20,30,40,50)::20"
+    "reddit::graph/reddit_for_partitioning::choice(7000,10000)::choice(20,25)::20"
+    "ogbn_products::graph/ogbn_products_for_partitioning::choice(7000,10000)::choice(20,25)::20"
 )
 
 MODEL_SPECS=(
@@ -167,12 +172,17 @@ run_optuna_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Trials per study: $N_TRIALS"
+    echo "Parallel trials per study: $OPTUNA_N_JOBS"
+    echo "Optuna startup trials: $OPTUNA_N_STARTUP_TRIALS"
     echo "Common LR space: $LR_SPACE"
     echo "Common weight decay space: $WEIGHT_DECAY_SPACE"
     echo "Common out_channels space: $OUT_CHANNELS_SPACE"
     echo "Common proj_dropout space: $PROJ_DROPOUT_SPACE"
     echo "Stream num_workers: $STREAM_NUM_WORKERS"
     echo "Validation cache num_workers: $CACHE_NUM_WORKERS"
+    echo "Validation cache enabled: $CACHE_VAL"
+    echo "Validation shuffle: $VAL_SHUFFLE"
+    echo "Optimized metric: ${OPTIMIZED_METRIC:-config default}"
     echo "Optuna storage: $OPTUNA_STORAGE"
 
     local dataset_spec model_spec
@@ -236,6 +246,7 @@ run_optuna_suite() {
             cmd=(
                 "python" "-m" "topobench" "--multirun"
                 "hparams_search=partitioning_optuna"
+                "hydra/launcher=joblib"
                 "dataset=${dataset_config}"
                 "model=${model_config}"
                 "trainer=${TRAINER}"
@@ -243,11 +254,15 @@ run_optuna_suite() {
                 "hydra.sweeper.storage=${optuna_storage}"
                 "hydra.sweeper.study_name=${study_name}"
                 "hydra.sweeper.n_trials=${N_TRIALS}"
-                "hydra.sweeper.n_jobs=1"
+                "hydra.sweeper.n_jobs=${OPTUNA_N_JOBS}"
+                "hydra.sweeper.sampler.n_startup_trials=${OPTUNA_N_STARTUP_TRIALS}"
+                "hydra.launcher.n_jobs=${OPTUNA_N_JOBS}"
                 "+hydra.sweeper.params=${sweeper_params_override}"
                 "++dataset.loader.parameters.stream.q_val=${q_val}"
                 "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
                 "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
+                "++dataset.loader.parameters.stream.cache_val=${CACHE_VAL}"
+                "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
@@ -259,6 +274,10 @@ run_optuna_suite() {
                 "extras.enforce_tags=false"
             )
 
+            if [[ -n "$OPTIMIZED_METRIC" ]]; then
+                cmd+=("optimized_metric=${OPTIMIZED_METRIC}")
+            fi
+
             if [[ "$TRAINER" == "gpu" ]]; then
                 cmd+=("trainer.devices=[${current_gpu}]")
             fi
@@ -266,7 +285,8 @@ run_optuna_suite() {
             if [[ "$LOGGER" == "wandb" ]]; then
                 cmd+=(
                     "logger.wandb.project=${project_name}"
-                    "+logger.wandb.name=${study_name}"
+                    "logger.wandb.group=${study_name}"
+                    "+logger.wandb.name=${study_name}_trial_\${hydra:job.num}"
                 )
                 if [[ -n "${wandb_entity:-}" ]]; then
                     cmd+=("+logger.wandb.entity=${wandb_entity}")

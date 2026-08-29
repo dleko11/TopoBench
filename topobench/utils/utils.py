@@ -2,6 +2,7 @@
 
 import warnings
 from collections.abc import Callable
+from functools import wraps
 from importlib.util import find_spec
 from typing import Any
 
@@ -78,6 +79,7 @@ def task_wrapper(task_func: Callable) -> Callable:
         The wrapped task function.
     """
 
+    @wraps(task_func)
     def wrap(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
         """Wrapper function that executes the task function.
 
