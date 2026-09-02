@@ -60,6 +60,8 @@ REQUIRED_HISTORY_KEYS = (
 RESOURCE_HISTORY_KEYS = (
     "tracking/resource/rss_mb",
     "tracking/resource/tree_rss_mb",
+    "tracking/resource/rss_peak_mb",
+    "tracking/resource/tree_rss_peak_mb",
     "tracking/resource/cuda_allocated_mb",
     "tracking/resource/cuda_reserved_mb",
     "tracking/resource/cuda_peak_allocated_mb",
@@ -90,6 +92,7 @@ RUN_FIELDS = (
     "trainer_devices",
     "cpu_count",
     "host_memory_total_mb",
+    "cpu_memory_sample_interval_sec",
     "python",
     "git_commit",
     "stream_q",
@@ -119,6 +122,8 @@ PHASE_FIELDS = RUN_FIELDS + (
     "duration_max_sec",
     "rss_boundary_max_mb",
     "tree_rss_boundary_max_mb",
+    "rss_peak_max_mb",
+    "tree_rss_peak_max_mb",
     "cuda_allocated_end_max_mb",
     "cuda_reserved_end_max_mb",
     "cuda_peak_allocated_max_mb",
@@ -242,6 +247,9 @@ def _run_metadata(spec: ProjectSpec, run: Any) -> dict[str, Any]:
         "trainer_devices": _json_cell(trainer.get("devices")),
         "cpu_count": metadata.get("cpu_count"),
         "host_memory_total_mb": _bytes_to_mb(memory.get("total")),
+        "cpu_memory_sample_interval_sec": summary.get(
+            "tracking/cpu_memory_sample_interval_sec"
+        ),
         "python": metadata.get("python"),
         "git_commit": _nested(metadata, "git", "commit"),
         "stream_q": stream.get("q"),
@@ -316,6 +324,18 @@ def _extract_run_phases(
                 ),
                 "tree_rss_boundary_max_mb": _max_or_none(
                     _finite_values(rows, "tracking/resource/tree_rss_mb")
+                ),
+                "rss_peak_max_mb": _max_or_none(
+                    _finite_values(
+                        end_rows,
+                        "tracking/resource/rss_peak_mb",
+                    )
+                ),
+                "tree_rss_peak_max_mb": _max_or_none(
+                    _finite_values(
+                        end_rows,
+                        "tracking/resource/tree_rss_peak_mb",
+                    )
                 ),
                 "cuda_allocated_end_max_mb": _max_or_none(
                     _finite_values(

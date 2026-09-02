@@ -11,7 +11,10 @@ TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
 STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-1}"
 CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-1}"
+CACHE_VAL="${CACHE_VAL:-true}"
+VAL_SHUFFLE="${VAL_SHUFFLE:-false}"
 MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-}"
+PARTITION_GRID_OVERRIDE="${PARTITION_GRID_OVERRIDE:-}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -19,6 +22,7 @@ CHECK_VAL_EVERY_N_EPOCH="${CHECK_VAL_EVERY_N_EPOCH:-5}"
 EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-5}"
 ENSEMBLE_RUNS="${ENSEMBLE_RUNS:-10}"
 TEST_INFERENCE_PROTOCOLS="${TEST_INFERENCE_PROTOCOLS:-[batched,ensemble]}"
+TEST="${TEST:-true}"
 
 DATASET_FILTER="${DATASET_FILTER:-}"
 MODEL_FILTER="${MODEL_FILTER:-}"
@@ -34,9 +38,43 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
-log_group="${script_name}_sweep"
+if [[ -n "$PARTITION_GRID_OVERRIDE" ]]; then
+    run_name_prefix="${RUN_NAME_PREFIX:-partition_grid}"
+    log_group="${LOG_GROUP:-${script_name}_grid_sweep}"
+else
+    run_name_prefix="${RUN_NAME_PREFIX:-final_partitioning}"
+    log_group="${LOG_GROUP:-${script_name}_sweep}"
+fi
 
 source "$SCRIPT_DIR/common.sh"
+
+PARTITION_GRID=()
+
+parse_partition_grid_override() {
+    if [[ -z "$PARTITION_GRID_OVERRIDE" ]]; then
+        return
+    fi
+    if [[ -z "$DATASET_FILTER" ]]; then
+        echo "ERROR: PARTITION_GRID_OVERRIDE requires DATASET_FILTER." >&2
+        exit 1
+    fi
+
+    local entry num_parts q
+    local -a grid_entries
+    IFS=',' read -ra grid_entries <<< "$PARTITION_GRID_OVERRIDE"
+    for entry in "${grid_entries[@]}"; do
+        if ! [[ "$entry" =~ ^[1-9][0-9]*:[1-9][0-9]*$ ]]; then
+            echo "ERROR: invalid partition grid entry '$entry'. Expected NUM_PARTS:Q." >&2
+            exit 1
+        fi
+        IFS=':' read -r num_parts q <<< "$entry"
+        if (( q > num_parts )); then
+            echo "ERROR: q must not exceed num_parts in '$entry'." >&2
+            exit 1
+        fi
+        PARTITION_GRID+=("${num_parts}:${q}")
+    done
+}
 
 FINAL_SPECS=(
     "questions|graph/questions_for_partitioning|gcn|graph/gcn|graph|0.0001|0|128|0.2|500|20|0.2"
@@ -82,6 +120,31 @@ FINAL_SPECS=(
     "ogbn_products|graph/ogbn_products_for_partitioning|scn|simplicial/scn|simplicial|0.01|0|128|0.2|1000|20|"
     "ogbn_products|graph/ogbn_products_for_partitioning|sccnn|simplicial/sccnn_custom|simplicial|0.01|0|128|0.2|1000|20|"
 )
+
+RUN_SPECS=()
+
+build_run_specs() {
+    local spec dataset_alias dataset_config model_alias model_config
+    local transform_kind lr weight_decay out_channels proj_dropout
+    local default_num_parts default_q num_parts q dropout partition_spec
+
+    if (( ${#PARTITION_GRID[@]} == 0 )); then
+        RUN_SPECS=("${FINAL_SPECS[@]}")
+        return
+    fi
+
+    for spec in "${FINAL_SPECS[@]}"; do
+        IFS='|' read -r dataset_alias dataset_config model_alias model_config \
+            transform_kind lr weight_decay out_channels proj_dropout \
+            default_num_parts default_q dropout <<< "$spec"
+        for partition_spec in "${PARTITION_GRID[@]}"; do
+            IFS=':' read -r num_parts q <<< "$partition_spec"
+            RUN_SPECS+=(
+                "${dataset_alias}|${dataset_config}|${model_alias}|${model_config}|${transform_kind}|${lr}|${weight_decay}|${out_channels}|${proj_dropout}|${num_parts}|${q}|${dropout}"
+            )
+        done
+    done
+}
 
 matches_filter() {
     local alias="$1"
@@ -130,7 +193,7 @@ count_selected_runs() {
     local transform_kind lr weight_decay out_channels proj_dropout
     local num_parts q dropout
 
-    for spec in "${FINAL_SPECS[@]}"; do
+    for spec in "${RUN_SPECS[@]}"; do
         IFS='|' read -r dataset_alias dataset_config model_alias model_config \
             transform_kind lr weight_decay out_channels proj_dropout \
             num_parts q dropout <<< "$spec"
@@ -181,19 +244,22 @@ run_final_partitioning_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
+    echo "Partition grid override: ${PARTITION_GRID[*]:-(model defaults)}"
     echo "Stream workers: $STREAM_NUM_WORKERS"
     echo "Validation cache workers: $CACHE_NUM_WORKERS"
-    echo "Validation cache: automatic dataset location, removed after each run"
+    echo "Validation cache enabled: $CACHE_VAL"
+    echo "Validation shuffle: $VAL_SHUFFLE"
     echo "Maximum concurrent runs: ${MAX_CONCURRENT_RUNS:-${#gpus[@]}}"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Ensemble runs: $ENSEMBLE_RUNS"
+    echo "Run test inference: $TEST"
 
     local spec dataset_alias dataset_config model_alias model_config
     local transform_kind lr weight_decay out_channels proj_dropout
     local num_parts q dropout data_seed current_gpu project_name run_name
     local assigned_slot cmd_string
 
-    for spec in "${FINAL_SPECS[@]}"; do
+    for spec in "${RUN_SPECS[@]}"; do
         IFS='|' read -r dataset_alias dataset_config model_alias model_config \
             transform_kind lr weight_decay out_channels proj_dropout \
             num_parts q dropout <<< "$spec"
@@ -205,7 +271,7 @@ run_final_partitioning_suite() {
         fi
 
         for data_seed in "${DATA_SEEDS[@]}"; do
-            run_name="final_partitioning_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
+            run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
                 skipped=$(( skipped + 1 ))
@@ -251,7 +317,9 @@ run_final_partitioning_suite() {
                 "dataset.loader.parameters.cluster.num_parts=${num_parts}"
                 "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
                 "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
-                "++dataset.loader.parameters.stream.cleanup_val_cache=true"
+                "++dataset.loader.parameters.stream.cache_val=${CACHE_VAL}"
+                "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
+                "++dataset.loader.parameters.stream.cleanup_val_cache=${CACHE_VAL}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
@@ -260,6 +328,7 @@ run_final_partitioning_suite() {
                 "test_inference.protocols=${TEST_INFERENCE_PROTOCOLS}"
                 "test_inference.ensemble_runs=${ENSEMBLE_RUNS}"
                 "test_inference.ensemble_seed=${data_seed}"
+                "test=${TEST}"
                 "+trainer.enable_progress_bar=false"
                 "extras.print_config=false"
                 "extras.enforce_tags=false"
@@ -307,4 +376,6 @@ run_final_partitioning_suite() {
     fi
 }
 
+parse_partition_grid_override
+build_run_specs
 run_final_partitioning_suite

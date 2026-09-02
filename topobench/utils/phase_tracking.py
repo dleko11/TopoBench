@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import threading
 import time
 from collections.abc import Iterator, Mapping
 from typing import Any
@@ -47,6 +48,8 @@ PHASE_IDS: dict[str, int] = {
     "test_inference_ensemble": 250,
     "val_cache_build": 300,
 }
+
+CPU_MEMORY_SAMPLE_INTERVAL_SEC = 0.25
 
 EVENT_IDS: dict[str, int] = {
     f"{phase}_start": phase_id * 10 + 1
@@ -135,12 +138,26 @@ class PhaseResourceTracker:
     ----------
     loggers : Any
         Lightning logger or list of loggers from which W&B runs are collected.
+    cpu_memory_sample_interval_sec : float, optional
+        Seconds between process-tree RSS samples.
     """
 
-    def __init__(self, loggers: Any) -> None:
+    def __init__(
+        self,
+        loggers: Any,
+        cpu_memory_sample_interval_sec: float = CPU_MEMORY_SAMPLE_INTERVAL_SEC,
+    ) -> None:
         self._wandb_runs = self._collect_wandb_runs(loggers)
         self._active_starts: dict[str, float] = {}
         self._summary_written = False
+        self._cpu_memory_sample_interval_sec = float(
+            cpu_memory_sample_interval_sec
+        )
+        if self._cpu_memory_sample_interval_sec <= 0:
+            raise ValueError("CPU memory sample interval must be positive.")
+        self._cpu_peak_lock = threading.Lock()
+        self._active_cpu_peaks: dict[str, dict[str, float]] = {}
+        self._cpu_sampler_thread: threading.Thread | None = None
 
     @property
     def enabled(self) -> bool:
@@ -162,9 +179,13 @@ class PhaseResourceTracker:
             "tracking/phase_id_map": json.dumps(PHASE_IDS, sort_keys=True),
             "tracking/event_id_map": json.dumps(EVENT_IDS, sort_keys=True),
             "tracking/resource_tracking_enabled": True,
+            "tracking/cpu_memory_sample_interval_sec": (
+                self._cpu_memory_sample_interval_sec
+            ),
             "tracking/system_metrics_note": (
                 "W&B system metrics are sampled separately; tracking/* rows "
-                "mark phase boundaries and explicit resource snapshots."
+                "include phase boundaries, sampled CPU RSS peaks, and CUDA "
+                "allocator peaks."
             ),
         }
         for run in self._wandb_runs:
@@ -198,6 +219,7 @@ class PhaseResourceTracker:
             return
         self._reset_cuda_peak_stats()
         self._active_starts[phase] = time.perf_counter()
+        self._start_cpu_peak_tracking(phase)
         self._log_event(
             phase,
             event="start",
@@ -236,6 +258,8 @@ class PhaseResourceTracker:
         duration_sec = (
             time.perf_counter() - start if start is not None else 0.0
         )
+        event_extra = dict(extra or {})
+        event_extra.update(self._finish_cpu_peak_tracking(phase))
         self._log_event(
             phase,
             event="end",
@@ -244,7 +268,7 @@ class PhaseResourceTracker:
             duration_sec=duration_sec,
             epoch=epoch,
             global_step=global_step,
-            extra=extra,
+            extra=event_extra,
         )
 
     @contextlib.contextmanager
@@ -390,15 +414,7 @@ class PhaseResourceTracker:
         dict[str, float]
             Resource metric payload for a W&B marker row.
         """
-        payload: dict[str, float] = {}
-        process = self._process()
-        if process is not None:
-            rss_mb = self._rss_mb(process)
-            if rss_mb is not None:
-                payload["tracking/resource/rss_mb"] = rss_mb
-                payload["tracking/resource/tree_rss_mb"] = (
-                    rss_mb + self._children_rss_mb(process)
-                )
+        payload = self._cpu_memory_snapshot()
 
         if torch.cuda.is_available():
             with contextlib.suppress(Exception):
@@ -417,6 +433,109 @@ class PhaseResourceTracker:
                     torch.cuda.max_memory_reserved(device) / scale
                 )
         return payload
+
+    def _cpu_memory_snapshot(self) -> dict[str, float]:
+        """Collect current driver-process and process-tree RSS values.
+
+        Returns
+        -------
+        dict[str, float]
+            Available RSS measurements in megabytes.
+        """
+        payload: dict[str, float] = {}
+        process = self._process()
+        if process is not None:
+            rss_mb = self._rss_mb(process)
+            if rss_mb is not None:
+                payload["tracking/resource/rss_mb"] = rss_mb
+                payload["tracking/resource/tree_rss_mb"] = (
+                    rss_mb + self._children_rss_mb(process)
+                )
+        return payload
+
+    def _start_cpu_peak_tracking(self, phase: str) -> None:
+        """Start sampled RSS peak tracking for one phase.
+
+        Parameters
+        ----------
+        phase : str
+            Name of the phase to track.
+        """
+        if psutil is None:
+            return
+        snapshot = self._cpu_memory_snapshot()
+        with self._cpu_peak_lock:
+            for peaks in self._active_cpu_peaks.values():
+                for metric, value in snapshot.items():
+                    peaks[metric] = max(peaks.get(metric, value), value)
+            self._active_cpu_peaks[phase] = dict(snapshot)
+        self._ensure_cpu_sampler()
+
+    def _finish_cpu_peak_tracking(self, phase: str) -> dict[str, float]:
+        """Stop RSS peak tracking for one phase and return its maxima.
+
+        Parameters
+        ----------
+        phase : str
+            Name of the phase to stop tracking.
+
+        Returns
+        -------
+        dict[str, float]
+            Sampled driver and process-tree RSS peaks in megabytes.
+        """
+        if psutil is None:
+            return {}
+        self._sample_cpu_peaks()
+        with self._cpu_peak_lock:
+            peaks = self._active_cpu_peaks.pop(phase, {})
+        result = {}
+        rss_mb = peaks.get("tracking/resource/rss_mb")
+        if rss_mb is not None:
+            result["tracking/resource/rss_peak_mb"] = rss_mb
+        tree_rss_mb = peaks.get("tracking/resource/tree_rss_mb")
+        if tree_rss_mb is not None:
+            result["tracking/resource/tree_rss_peak_mb"] = tree_rss_mb
+        return result
+
+    def _ensure_cpu_sampler(self) -> None:
+        """Start the process-wide daemon sampler when needed."""
+        with self._cpu_peak_lock:
+            if (
+                self._cpu_sampler_thread is not None
+                and self._cpu_sampler_thread.is_alive()
+            ):
+                return
+            thread = threading.Thread(
+                target=self._cpu_sampler_loop,
+                name="topobench-phase-rss-sampler",
+                daemon=True,
+            )
+            self._cpu_sampler_thread = thread
+        thread.start()
+
+    def _cpu_sampler_loop(self) -> None:
+        """Sample RSS until no phases remain active."""
+        while True:
+            time.sleep(self._cpu_memory_sample_interval_sec)
+            with self._cpu_peak_lock:
+                if not self._active_cpu_peaks:
+                    self._cpu_sampler_thread = None
+                    return
+            self._sample_cpu_peaks()
+
+    def _sample_cpu_peaks(self) -> None:
+        """Update RSS maxima for every currently active phase."""
+        with self._cpu_peak_lock:
+            if not self._active_cpu_peaks:
+                return
+        snapshot = self._cpu_memory_snapshot()
+        if not snapshot:
+            return
+        with self._cpu_peak_lock:
+            for peaks in self._active_cpu_peaks.values():
+                for metric, value in snapshot.items():
+                    peaks[metric] = max(peaks.get(metric, value), value)
 
     def _reset_cuda_peak_stats(self) -> None:
         """Reset CUDA peak memory counters when CUDA is available."""

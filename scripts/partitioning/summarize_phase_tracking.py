@@ -88,7 +88,22 @@ METRICS = (
         "GiB",
         1 / 1024,
     ),
+    MetricSpec(
+        "driver_rss_peak_gib",
+        "rss_peak_max_mb",
+        "memory",
+        "GiB",
+        1 / 1024,
+    ),
+    MetricSpec(
+        "tree_rss_peak_gib",
+        "tree_rss_peak_max_mb",
+        "memory",
+        "GiB",
+        1 / 1024,
+    ),
 )
+OPTIONAL_METRIC_SOURCES = {"rss_peak_max_mb", "tree_rss_peak_max_mb"}
 
 REPEATED_PHASES = {"train_epoch", "validation_epoch", "test_epoch"}
 CUDA_MAIN_PHASES = {
@@ -96,14 +111,20 @@ CUDA_MAIN_PHASES = {
     "validation_epoch",
     "val_best_rerun",
     "test_inference_batched",
+    "test_inference_full_graph",
+    "test_inference_ensemble",
 }
 RSS_APPENDIX_PHASES = {
     "dataset_load",
     "full_graph_preprocessing",
+    "partition_build",
+    "datamodule_init",
     "train_epoch",
     "validation_epoch",
     "val_best_rerun",
     "test_inference_batched",
+    "test_inference_full_graph",
+    "test_inference_ensemble",
 }
 TIME_TOTAL_MAIN_PHASES = {
     "dataset_load",
@@ -284,6 +305,8 @@ def _recommended_for_main(metric: str, phase: str) -> bool:
         return phase in REPEATED_PHASES
     if metric in {"cuda_peak_allocated_gib", "cuda_peak_reserved_gib"}:
         return phase in CUDA_MAIN_PHASES
+    if metric == "tree_rss_peak_gib":
+        return phase in RSS_APPENDIX_PHASES
     return False
 
 
@@ -304,6 +327,13 @@ def _measurement_note(metric: str, phase: str) -> str:
         return "Driver-process RSS sampled only at phase boundaries."
     if metric == "tree_rss_boundary_gib":
         return "Aggregate process-tree RSS at boundaries may double-count shared pages."
+    if metric == "driver_rss_peak_gib":
+        return "Peak driver-process RSS from periodic samples."
+    if metric == "tree_rss_peak_gib":
+        return (
+            "Peak process-tree RSS from periodic samples; shared pages may "
+            "be counted in multiple processes."
+        )
     return ""
 
 
@@ -501,6 +531,9 @@ def main() -> None:
     args = _build_parser().parse_args()
     runs = pd.read_csv(args.runs)
     phases = pd.read_csv(args.phase_metrics)
+    for source in OPTIONAL_METRIC_SOURCES:
+        if source not in phases:
+            phases[source] = np.nan
 
     _require_columns(
         runs,
@@ -560,7 +593,12 @@ def main() -> None:
         )
         | (
             appendix["metric"].isin(
-                {"driver_rss_boundary_gib", "tree_rss_boundary_gib"}
+                {
+                    "driver_rss_boundary_gib",
+                    "tree_rss_boundary_gib",
+                    "driver_rss_peak_gib",
+                    "tree_rss_peak_gib",
+                }
             )
             & appendix["phase"].isin(RSS_APPENDIX_PHASES)
         )
