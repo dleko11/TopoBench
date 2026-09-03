@@ -16,6 +16,7 @@ VAL_SHUFFLE="${VAL_SHUFFLE:-false}"
 MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-}"
 PARTITION_GRID_OVERRIDE="${PARTITION_GRID_OVERRIDE:-}"
 FULL_GRAPH_BASELINE="${FULL_GRAPH_BASELINE:-false}"
+FORCE_RELOAD_PREPROCESSING="${FORCE_RELOAD_PREPROCESSING:-false}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -23,6 +24,7 @@ CHECK_VAL_EVERY_N_EPOCH="${CHECK_VAL_EVERY_N_EPOCH:-5}"
 EARLY_STOPPING_PATIENCE="${EARLY_STOPPING_PATIENCE:-5}"
 ENSEMBLE_RUNS="${ENSEMBLE_RUNS:-10}"
 TEST_INFERENCE_PROTOCOLS="${TEST_INFERENCE_PROTOCOLS:-[batched,ensemble]}"
+TRAIN="${TRAIN:-true}"
 TEST="${TEST:-true}"
 
 DATASET_FILTER="${DATASET_FILTER:-}"
@@ -57,6 +59,10 @@ PARTITION_GRID=()
 validate_mode_options() {
     if [[ "$FULL_GRAPH_BASELINE" != "true" && "$FULL_GRAPH_BASELINE" != "false" ]]; then
         echo "ERROR: FULL_GRAPH_BASELINE must be true or false." >&2
+        exit 1
+    fi
+    if [[ "$FORCE_RELOAD_PREPROCESSING" != "true" && "$FORCE_RELOAD_PREPROCESSING" != "false" ]]; then
+        echo "ERROR: FORCE_RELOAD_PREPROCESSING must be true or false." >&2
         exit 1
     fi
     if [[ "$FULL_GRAPH_BASELINE" == "true" && -n "$PARTITION_GRID_OVERRIDE" ]]; then
@@ -272,10 +278,12 @@ run_final_partitioning_suite() {
         echo "Validation shuffle: $VAL_SHUFFLE"
     else
         echo "Dataloader workers: $STREAM_NUM_WORKERS"
+        echo "Force preprocessing rebuild: $FORCE_RELOAD_PREPROCESSING"
     fi
     echo "Maximum concurrent runs: ${MAX_CONCURRENT_RUNS:-${#gpus[@]}}"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Ensemble runs: $ENSEMBLE_RUNS"
+    echo "Run training: $TRAIN"
     echo "Run test inference: $TEST"
 
     local spec dataset_alias dataset_config model_alias model_config
@@ -364,6 +372,10 @@ run_final_partitioning_suite() {
                     "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
                     "++dataset.loader.parameters.stream.cleanup_val_cache=${CACHE_VAL}"
                 )
+            else
+                cmd+=(
+                    "++dataset.parameters.force_reload_preprocessing=${FORCE_RELOAD_PREPROCESSING}"
+                )
             fi
 
             cmd+=(
@@ -374,6 +386,7 @@ run_final_partitioning_suite() {
                 "test_inference.protocols=${TEST_INFERENCE_PROTOCOLS}"
                 "test_inference.ensemble_runs=${ENSEMBLE_RUNS}"
                 "test_inference.ensemble_seed=${data_seed}"
+                "train=${TRAIN}"
                 "test=${TEST}"
                 "+trainer.enable_progress_bar=false"
                 "extras.print_config=false"

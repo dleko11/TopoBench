@@ -225,10 +225,22 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                 if memory_type == "on_disk"
                 else PreProcessor
             )
+            preprocessor_kwargs = {}
+            if (
+                preprocessor_cls is PreProcessor
+                and transform_config is not None
+            ):
+                preprocessor_kwargs["force_reload"] = bool(
+                    cfg.dataset.parameters.get(
+                        "force_reload_preprocessing",
+                        False,
+                    )
+                )
             preprocessor = preprocessor_cls(
                 dataset,
                 dataset_dir,
                 transform_config,
+                **preprocessor_kwargs,
             )
             dataset_train, dataset_val, dataset_test = (
                 preprocessor.load_dataset_splits(cfg.dataset.split_params)
