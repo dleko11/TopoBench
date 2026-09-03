@@ -15,6 +15,7 @@ CACHE_VAL="${CACHE_VAL:-true}"
 VAL_SHUFFLE="${VAL_SHUFFLE:-false}"
 MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-}"
 PARTITION_GRID_OVERRIDE="${PARTITION_GRID_OVERRIDE:-}"
+FULL_GRAPH_BASELINE="${FULL_GRAPH_BASELINE:-false}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -38,7 +39,10 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
-if [[ -n "$PARTITION_GRID_OVERRIDE" ]]; then
+if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
+    run_name_prefix="${RUN_NAME_PREFIX:-full_graph_baseline}"
+    log_group="${LOG_GROUP:-${script_name}_full_graph_sweep}"
+elif [[ -n "$PARTITION_GRID_OVERRIDE" ]]; then
     run_name_prefix="${RUN_NAME_PREFIX:-partition_grid}"
     log_group="${LOG_GROUP:-${script_name}_grid_sweep}"
 else
@@ -49,6 +53,17 @@ fi
 source "$SCRIPT_DIR/common.sh"
 
 PARTITION_GRID=()
+
+validate_mode_options() {
+    if [[ "$FULL_GRAPH_BASELINE" != "true" && "$FULL_GRAPH_BASELINE" != "false" ]]; then
+        echo "ERROR: FULL_GRAPH_BASELINE must be true or false." >&2
+        exit 1
+    fi
+    if [[ "$FULL_GRAPH_BASELINE" == "true" && -n "$PARTITION_GRID_OVERRIDE" ]]; then
+        echo "ERROR: PARTITION_GRID_OVERRIDE cannot be used with FULL_GRAPH_BASELINE=true." >&2
+        exit 1
+    fi
+}
 
 parse_partition_grid_override() {
     if [[ -z "$PARTITION_GRID_OVERRIDE" ]]; then
@@ -239,16 +254,25 @@ run_final_partitioning_suite() {
         exit 1
     fi
 
-    echo "Total final partitioning runs planned: $total_runs"
+    if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
+        echo "Experiment mode: full graph baseline"
+    else
+        echo "Experiment mode: partitioning"
+    fi
+    echo "Total runs planned: $total_runs"
     echo "Dry run: $DRY_RUN"
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
-    echo "Partition grid override: ${PARTITION_GRID[*]:-(model defaults)}"
-    echo "Stream workers: $STREAM_NUM_WORKERS"
-    echo "Validation cache workers: $CACHE_NUM_WORKERS"
-    echo "Validation cache enabled: $CACHE_VAL"
-    echo "Validation shuffle: $VAL_SHUFFLE"
+    if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
+        echo "Partition grid override: ${PARTITION_GRID[*]:-(model defaults)}"
+        echo "Stream workers: $STREAM_NUM_WORKERS"
+        echo "Validation cache workers: $CACHE_NUM_WORKERS"
+        echo "Validation cache enabled: $CACHE_VAL"
+        echo "Validation shuffle: $VAL_SHUFFLE"
+    else
+        echo "Dataloader workers: $STREAM_NUM_WORKERS"
+    fi
     echo "Maximum concurrent runs: ${MAX_CONCURRENT_RUNS:-${#gpus[@]}}"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Ensemble runs: $ENSEMBLE_RUNS"
@@ -257,7 +281,7 @@ run_final_partitioning_suite() {
     local spec dataset_alias dataset_config model_alias model_config
     local transform_kind lr weight_decay out_channels proj_dropout
     local num_parts q dropout data_seed current_gpu project_name run_name
-    local assigned_slot cmd_string
+    local assigned_slot cmd_string selected_dataset_config
 
     for spec in "${RUN_SPECS[@]}"; do
         IFS='|' read -r dataset_alias dataset_config model_alias model_config \
@@ -271,7 +295,17 @@ run_final_partitioning_suite() {
         fi
 
         for data_seed in "${DATA_SEEDS[@]}"; do
-            run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
+            selected_dataset_config="$dataset_config"
+            if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
+                if [[ "$dataset_config" != *_for_partitioning ]]; then
+                    echo "ERROR: cannot derive full-graph config from '$dataset_config'." >&2
+                    exit 1
+                fi
+                selected_dataset_config="${dataset_config%_for_partitioning}"
+                run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}"
+            else
+                run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
+            fi
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
                 skipped=$(( skipped + 1 ))
@@ -296,11 +330,15 @@ run_final_partitioning_suite() {
             done
 
             current_gpu="${gpus[$assigned_slot]}"
-            project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_partitioning${WANDB_PROJECT_SUFFIX}"
+            if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
+                project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_full${WANDB_PROJECT_SUFFIX}"
+            else
+                project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_partitioning${WANDB_PROJECT_SUFFIX}"
+            fi
 
             cmd=(
                 "python" "-m" "topobench"
-                "dataset=${dataset_config}"
+                "dataset=${selected_dataset_config}"
                 "model=${model_config}"
                 "trainer=${TRAINER}"
                 "logger=${LOGGER}"
@@ -311,16 +349,24 @@ run_final_partitioning_suite() {
                 "dataset.dataloader_params.batch_size=1"
                 "dataset.split_params.data_seed=${data_seed}"
                 "seed=${data_seed}"
-                "dataset.loader.parameters.stream.q=${q}"
-                "++dataset.loader.parameters.stream.q_val=${q}"
-                "++dataset.loader.parameters.stream.q_test=${q}"
-                "dataset.loader.parameters.cluster.num_parts=${num_parts}"
-                "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
-                "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
-                "++dataset.loader.parameters.stream.cache_val=${CACHE_VAL}"
-                "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
-                "++dataset.loader.parameters.stream.cleanup_val_cache=${CACHE_VAL}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
+            )
+
+            if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
+                cmd+=(
+                    "dataset.loader.parameters.stream.q=${q}"
+                    "++dataset.loader.parameters.stream.q_val=${q}"
+                    "++dataset.loader.parameters.stream.q_test=${q}"
+                    "dataset.loader.parameters.cluster.num_parts=${num_parts}"
+                    "dataset.loader.parameters.stream.num_workers=${STREAM_NUM_WORKERS}"
+                    "++dataset.loader.parameters.stream.cache_num_workers=${CACHE_NUM_WORKERS}"
+                    "++dataset.loader.parameters.stream.cache_val=${CACHE_VAL}"
+                    "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
+                    "++dataset.loader.parameters.stream.cleanup_val_cache=${CACHE_VAL}"
+                )
+            fi
+
+            cmd+=(
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
                 "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
@@ -368,14 +414,15 @@ run_final_partitioning_suite() {
         done
     done
 
-    echo "All final partitioning runs launched ($launched launched, $skipped skipped)."
+    echo "All runs launched ($launched launched, $skipped skipped)."
     if [[ "$DRY_RUN" != "true" ]]; then
-        echo "Waiting for remaining final partitioning runs..."
+        echo "Waiting for remaining runs..."
         wait
-        echo "All final partitioning runs complete."
+        echo "All runs complete."
     fi
 }
 
+validate_mode_options
 parse_partition_grid_override
 build_run_specs
 run_final_partitioning_suite
