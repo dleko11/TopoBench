@@ -48,7 +48,7 @@ DATASET_SPECS=(
     "cora_full::graph/cocitation_cora_full_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
     "amazon_ratings::graph/amazon_ratings_for_partitioning::choice(32,64,128,256)::choice(4,8,16,32)::16"
     "reddit::graph/reddit_for_partitioning::choice(7000,10000)::choice(20,25)::20"
-    "ogbn_products::graph/ogbn_products_for_partitioning::choice(7000,10000)::choice(20,25)::20"
+    "ogbn_products::graph/ogbn_products_for_partitioning::choice(15000,20000)::choice(20,25)::20"
 )
 
 MODEL_SPECS=(
