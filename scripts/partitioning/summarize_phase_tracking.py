@@ -14,7 +14,13 @@ import pandas as pd
 DEFAULT_INPUT_DIR = Path("outputs/phase_tracking")
 DEFAULT_OUTPUT_DIR = DEFAULT_INPUT_DIR / "analysis"
 
-DATASET_ORDER = ("cora_full", "amazon_ratings", "questions")
+DATASET_ORDER = (
+    "amazon_ratings",
+    "questions",
+    "cora_full",
+    "coauthor_physics",
+    "reddit",
+)
 MODEL_ORDER = ("gcn", "edgnn", "unignn", "cwn", "topotune", "scn", "sccnn")
 PHASE_ORDER = (
     "dataset_load",
@@ -160,6 +166,16 @@ COMPARISON_GROUPS = (
     "source_field",
 )
 
+STRUCTURE_BY_MODEL = {
+    "edgnn": ("hyperedges", "num_hyperedges"),
+    "unignn": ("hyperedges", "num_hyperedges"),
+    "cwn": ("2-cells", "num_2_cells"),
+    "topotune": ("2-cells", "num_2_cells"),
+    "cell_topotune": ("2-cells", "num_2_cells"),
+    "scn": ("2-simplices", "num_2_simplices"),
+    "sccnn": ("2-simplices", "num_2_simplices"),
+}
+
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -177,6 +193,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output-dir",
         type=Path,
         default=DEFAULT_OUTPUT_DIR,
+    )
+    parser.add_argument(
+        "--structure-counts",
+        type=Path,
+        help="Optional CSV produced by count_clique_simplices.py.",
     )
     return parser
 
@@ -505,6 +526,65 @@ def _appendix_table(comparison: pd.DataFrame) -> pd.DataFrame:
     return table[columns]
 
 
+def _preprocessing_inventory(
+    summary: pd.DataFrame,
+    structure_counts: pd.DataFrame | None,
+) -> pd.DataFrame:
+    selected = summary[
+        (summary["mode"] == "full")
+        & (summary["phase"] == "full_graph_preprocessing")
+        & summary["metric"].isin(
+            {"time_total_sec", "tree_rss_peak_gib"}
+        )
+    ]
+    records = []
+    for (dataset, model), group in selected.groupby(
+        ["dataset", "model"], sort=False
+    ):
+        record: dict[str, Any] = {"dataset": dataset, "model": model}
+        for metric, prefix in (
+            ("time_total_sec", "preprocessing_time_sec"),
+            ("tree_rss_peak_gib", "peak_cpu_memory_gib"),
+        ):
+            rows = group[group["metric"] == metric]
+            if rows.empty:
+                continue
+            row = rows.iloc[0]
+            record[f"{prefix}_n"] = row["n_seeds"]
+            for statistic in ("median", "mean", "std"):
+                record[f"{prefix}_{statistic}"] = row[statistic]
+
+        structure = STRUCTURE_BY_MODEL.get(str(model))
+        record["lifted_structure_type"] = structure[0] if structure else ""
+        record["structure_count_field"] = structure[1] if structure else ""
+        records.append(record)
+
+    inventory = pd.DataFrame.from_records(records)
+    if inventory.empty or structure_counts is None:
+        return inventory
+
+    _require_columns(
+        structure_counts,
+        {
+            "dataset",
+            "num_hyperedges",
+            "num_2_cells",
+            "num_2_simplices",
+        },
+        Path("structure counts"),
+    )
+    counts = structure_counts.set_index("dataset")
+    inventory["num_lifted_structures"] = [
+        (
+            counts.at[row.dataset, row.structure_count_field]
+            if row.structure_count_field and row.dataset in counts.index
+            else np.nan
+        )
+        for row in inventory.itertuples(index=False)
+    ]
+    return inventory
+
+
 def _sort(frame: pd.DataFrame) -> pd.DataFrame:
     result = frame.copy()
     ordering = {
@@ -603,6 +683,14 @@ def main() -> None:
             & appendix["phase"].isin(RSS_APPENDIX_PHASES)
         )
     ]
+    structure_counts = (
+        pd.read_csv(args.structure_counts)
+        if args.structure_counts is not None
+        else None
+    )
+    preprocessing_inventory = _sort(
+        _preprocessing_inventory(summary, structure_counts)
+    )
 
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -611,6 +699,9 @@ def main() -> None:
     plot_medians.to_csv(output_dir / "plot_medians.csv", index=False)
     appendix_time.to_csv(output_dir / "appendix_time.csv", index=False)
     appendix_memory.to_csv(output_dir / "appendix_memory.csv", index=False)
+    preprocessing_inventory.to_csv(
+        output_dir / "preprocessing_inventory.csv", index=False
+    )
 
     print(f"Runs read: {len(runs)}")
     print(f"Run-phase rows read: {len(phases)}")
@@ -637,6 +728,7 @@ def main() -> None:
         "plot_medians.csv",
         "appendix_time.csv",
         "appendix_memory.csv",
+        "preprocessing_inventory.csv",
     ):
         print(output_dir / filename)
 
