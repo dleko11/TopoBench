@@ -29,6 +29,7 @@ DATASET_CONFIGS = {
     "cora_full": "graph/cocitation_cora_full",
     "coauthor_physics": "graph/coauthor_physics",
     "reddit": "graph/reddit",
+    "ogbn_products": "graph/ogbn_products_for_partitioning",
 }
 DEFAULT_DATASETS = tuple(DATASET_CONFIGS)
 

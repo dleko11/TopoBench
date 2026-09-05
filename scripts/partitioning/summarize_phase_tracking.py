@@ -20,6 +20,7 @@ DATASET_ORDER = (
     "cora_full",
     "coauthor_physics",
     "reddit",
+    "ogbn_products",
 )
 MODEL_ORDER = ("gcn", "edgnn", "unignn", "cwn", "topotune", "scn", "sccnn")
 PHASE_ORDER = (
