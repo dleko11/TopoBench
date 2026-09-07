@@ -8,6 +8,7 @@ import csv
 import json
 import os
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -50,12 +51,11 @@ OUTPUT_FIELDS = (
 )
 
 
-def count_graph_structures(
+def build_simple_undirected_graph(
     edge_index: torch.Tensor,
     num_nodes: int,
-    max_cell_length: int = 9,
-) -> dict[str, int | float | str]:
-    """Count the structures used by the full-graph benchmark liftings."""
+) -> nx.Graph:
+    """Build the simple undirected graph used by benchmark liftings."""
     if edge_index.ndim != 2 or edge_index.shape[0] != 2:
         raise ValueError("edge_index must have shape [2, num_edges].")
 
@@ -65,12 +65,18 @@ def count_graph_structures(
     graph = nx.Graph()
     graph.add_nodes_from(range(num_nodes))
     graph.add_edges_from(zip(sources, targets, strict=True))
-    del sources, targets
+    return graph
 
-    simplex_started = time.perf_counter()
+
+def count_triangles_from_edges(
+    num_nodes: int,
+    edges: Iterable[tuple[int, int]],
+) -> int:
+    """Count graph triangles without returning their node tuples."""
+    edge_list = edges if isinstance(edges, list) else list(edges)
     clique_graph = ig.Graph(
         n=num_nodes,
-        edges=list(graph.edges()),
+        edges=edge_list,
         directed=False,
     )
     clique_graph.simplify(multiple=True, loops=True)
@@ -78,12 +84,24 @@ def count_graph_structures(
     connected_triples = sum(
         int(degree) * (int(degree) - 1) // 2 for degree in degrees
     )
-    transitivity = float(
-        clique_graph.transitivity_undirected(mode="zero")
+    transitivity = float(clique_graph.transitivity_undirected(mode="zero"))
+    return int(round(transitivity * connected_triples / 3))
+
+
+def count_graph_structures(
+    edge_index: torch.Tensor,
+    num_nodes: int,
+    max_cell_length: int = 9,
+) -> dict[str, int | float | str]:
+    """Count the structures used by the full-graph benchmark liftings."""
+    graph = build_simple_undirected_graph(edge_index, num_nodes)
+
+    simplex_started = time.perf_counter()
+    num_2_simplices = count_triangles_from_edges(
+        num_nodes,
+        graph.edges(),
     )
-    num_2_simplices = int(round(transitivity * connected_triples / 3))
     simplex_count_time = time.perf_counter() - simplex_started
-    del clique_graph, degrees
 
     cell_started = time.perf_counter()
     cycles = nx.cycle_basis(graph)
