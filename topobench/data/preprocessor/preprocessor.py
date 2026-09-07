@@ -99,7 +99,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             self.transform = (
                 dataset.transform if hasattr(dataset, "transform") else None
             )
-            self.load(self.processed_paths[0])
+            if hasattr(self, "_processed_data_in_memory"):
+                self._data, self.slices = self._processed_data_in_memory
+                del self._processed_data_in_memory
+            else:
+                self.load(self.processed_paths[0])
             self.data_list = [data for data in self]
         else:
             self.transforms_applied = False
@@ -283,6 +287,7 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
 
         assert isinstance(self._data, torch_geometric.data.Data)
         self.save(self.data_list, self.processed_paths[0])
+        self._processed_data_in_memory = self._data, self.slices
 
     def load(self, path: str) -> None:
         r"""Load the dataset from the file path `path`.

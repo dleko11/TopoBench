@@ -205,6 +205,52 @@ class TestPreProcessorBasic:
 class TestPreProcessorProcessing:
     """Test PreProcessor data processing methods."""
 
+    def test_fresh_processing_reuses_memory_and_cached_processing_loads(self):
+        """Reuse fresh processed data while loading an existing cache."""
+        mock_data = torch_geometric.data.Data(x=torch.randn(3, 4))
+        mock_dataset = MockTorchDataset([mock_data])
+
+        def instantiate_pre_transform(preprocessor, data_dir, _config):
+            preprocessor.processed_data_dir = os.path.join(
+                data_dir, "processed"
+            )
+            preprocessor.transforms_parameters = {"identity": {}}
+            return torch_geometric.transforms.Compose([])
+
+        original_load = PreProcessor.load
+        load_calls = []
+
+        def tracked_load(preprocessor, path):
+            load_calls.append(path)
+            return original_load(preprocessor, path)
+
+        transforms_config = DictConfig({"transform_name": "Identity"})
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch.object(
+                PreProcessor,
+                "instantiate_pre_transform",
+                instantiate_pre_transform,
+            ),
+            patch.object(PreProcessor, "load", tracked_load),
+        ):
+            fresh = PreProcessor(
+                mock_dataset,
+                tmpdir,
+                transforms_config,
+            )
+            assert load_calls == []
+            assert not hasattr(fresh, "_processed_data_in_memory")
+            assert fresh._data.x.data_ptr() == mock_data.x.data_ptr()
+
+            cached = PreProcessor(
+                mock_dataset,
+                tmpdir,
+                transforms_config,
+            )
+            assert load_calls == [cached.processed_paths[0]]
+            assert torch.equal(cached._data.x, mock_data.x)
+
     def test_process_with_torch_utils_dataset(self):
         """Test process method with torch.utils.data.Dataset."""
         mock_data = [
