@@ -5,6 +5,7 @@ from abc import abstractmethod
 import torch_geometric
 
 from topobench.transforms.feature_liftings import FEATURE_LIFTINGS
+from topobench.utils.phase_tracking import track_phase
 
 
 class AbstractLifting(torch_geometric.transforms.BaseTransform):
@@ -56,8 +57,10 @@ class AbstractLifting(torch_geometric.transforms.BaseTransform):
             The lifted data.
         """
         initial_data = data.to_dict()
-        lifted_topology = self.lift_topology(data)
-        lifted_topology = self.feature_lifting(lifted_topology)
+        with track_phase("topology_lifting"):
+            lifted_topology = self.lift_topology(data)
+        with track_phase("feature_lifting"):
+            lifted_topology = self.feature_lifting(lifted_topology)
         # Remove the original features to avoid conflict with the feature lifting
         if "x_0" in initial_data:
             del initial_data["x_0"]

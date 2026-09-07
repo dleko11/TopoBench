@@ -7,8 +7,10 @@ including initialization, data transformations, split loading, and edge cases.
 import json
 import os
 import tempfile
+from contextlib import contextmanager
+from unittest.mock import MagicMock, mock_open, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, mock_open
 import torch
 import torch_geometric.data
 from omegaconf import DictConfig
@@ -148,6 +150,12 @@ class TestPreProcessorBasic:
         mock_dataset._data = torch_geometric.data.Data()
         mock_dataset.slices = {}
         mock_dataset.__iter__ = MagicMock(return_value=iter([]))
+        phases = []
+
+        @contextmanager
+        def record_phase(phase, **_kwargs):
+            phases.append(phase)
+            yield
 
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("torch_geometric.data.InMemoryDataset.__init__"):
@@ -155,11 +163,16 @@ class TestPreProcessorBasic:
                     preprocessor = PreProcessor(mock_dataset, tmpdir, None)
 
                     split_params = DictConfig({"learning_setting": "transductive"})
-                    preprocessor.load_dataset_splits(split_params)
+                    with patch(
+                        "topobench.data.preprocessor.preprocessor.track_phase",
+                        record_phase,
+                    ):
+                        preprocessor.load_dataset_splits(split_params)
 
                     mock_load_transductive_splits.assert_called_once_with(
                         preprocessor, split_params
                     )
+                    assert phases == ["preprocessing_split"]
 
     def test_invalid_learning_setting(self):
         """Test error with invalid learning setting."""
@@ -225,6 +238,13 @@ class TestPreProcessorProcessing:
             return original_load(preprocessor, path)
 
         transforms_config = DictConfig({"transform_name": "Identity"})
+        phases = []
+
+        @contextmanager
+        def record_phase(phase, **_kwargs):
+            phases.append(phase)
+            yield
+
         with (
             tempfile.TemporaryDirectory() as tmpdir,
             patch.object(
@@ -233,6 +253,10 @@ class TestPreProcessorProcessing:
                 instantiate_pre_transform,
             ),
             patch.object(PreProcessor, "load", tracked_load),
+            patch(
+                "topobench.data.preprocessor.preprocessor.track_phase",
+                record_phase,
+            ),
         ):
             fresh = PreProcessor(
                 mock_dataset,
@@ -240,6 +264,10 @@ class TestPreProcessorProcessing:
                 transforms_config,
             )
             assert load_calls == []
+            assert phases == [
+                "preprocessing_collate",
+                "preprocessing_save",
+            ]
             assert not hasattr(fresh, "_processed_data_in_memory")
             assert fresh._data.x.data_ptr() == mock_data.x.data_ptr()
 
@@ -249,6 +277,7 @@ class TestPreProcessorProcessing:
                 transforms_config,
             )
             assert load_calls == [cached.processed_paths[0]]
+            assert phases[-1] == "preprocessing_load"
             assert torch.equal(cached._data.x, mock_data.x)
 
     def test_process_with_torch_utils_dataset(self):

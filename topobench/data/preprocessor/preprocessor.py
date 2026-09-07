@@ -28,6 +28,7 @@ from topobench.data.utils import (
 )
 from topobench.dataloader import DataloadDataset
 from topobench.transforms.data_transform import DataTransform
+from topobench.utils.phase_tracking import track_phase
 
 
 def _split_mask_fingerprint(masks: dict[str, torch.Tensor]) -> str:
@@ -103,7 +104,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 self._data, self.slices = self._processed_data_in_memory
                 del self._processed_data_in_memory
             else:
-                self.load(self.processed_paths[0])
+                with track_phase("preprocessing_load"):
+                    self.load(self.processed_paths[0])
             self.data_list = [data for data in self]
         else:
             self.transforms_applied = False
@@ -282,11 +284,13 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         else:
             self.data_list = data_list
 
-        self._data, self.slices = self.collate(self.data_list)
+        with track_phase("preprocessing_collate"):
+            self._data, self.slices = self.collate(self.data_list)
         self._data_list = None  # Reset cache.
 
         assert isinstance(self._data, torch_geometric.data.Data)
-        self.save(self.data_list, self.processed_paths[0])
+        with track_phase("preprocessing_save"):
+            self.save(self.data_list, self.processed_paths[0])
         self._processed_data_in_memory = self._data, self.slices
 
     def load(self, path: str) -> None:
@@ -332,11 +336,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         if not split_params.get("learning_setting", False):
             raise ValueError("No learning setting specified in split_params")
 
-        if split_params.learning_setting == "inductive":
-            return load_inductive_splits(self, split_params)
-        elif split_params.learning_setting == "transductive":
-            return load_transductive_splits(self, split_params)
-        else:
+        with track_phase("preprocessing_split"):
+            if split_params.learning_setting == "inductive":
+                return load_inductive_splits(self, split_params)
+            if split_params.learning_setting == "transductive":
+                return load_transductive_splits(self, split_params)
             raise ValueError(
                 f"Invalid '{split_params.learning_setting}' learning setting.\
                 Please define either 'inductive' or 'transductive'."

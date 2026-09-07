@@ -1,9 +1,13 @@
 """Test AbstractLifting module."""
 
+from contextlib import contextmanager
+
 import pytest
 import torch
 from torch_geometric.data import Data
+
 from topobench.transforms.liftings import AbstractLifting
+
 
 class TestAbstractLifting:
     """Test the AbstractLifting class."""
@@ -51,3 +55,27 @@ class TestAbstractLifting:
 
         with pytest.raises(NotImplementedError):
             self.lifting.lift_topology(dummy_data)
+
+    def test_forward_tracks_topology_and_feature_lifting(self, monkeypatch):
+        """Track topology and feature construction as separate phases."""
+
+        class ConcreteLifting(AbstractLifting):
+            def lift_topology(self, data):
+                return {"x_0": data.x}
+
+        phases = []
+
+        @contextmanager
+        def record_phase(phase, **_kwargs):
+            phases.append(phase)
+            yield
+
+        monkeypatch.setattr(
+            "topobench.transforms.liftings.base.track_phase",
+            record_phase,
+        )
+
+        lifting = ConcreteLifting(feature_lifting=None)
+        lifting(Data(x=torch.tensor([[1.0], [2.0]])))
+
+        assert phases == ["topology_lifting", "feature_lifting"]
