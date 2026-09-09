@@ -1,0 +1,82 @@
+"""Tests for staged full-graph structure counting."""
+
+import argparse
+
+import pytest
+import torch
+
+from scripts.partitioning.count_clique_simplices import (
+    _parse_count_types,
+    _upsert_dataset_row,
+    count_graph_structures,
+)
+
+
+def _toy_edge_index() -> torch.Tensor:
+    return torch.tensor(
+        [
+            [0, 1, 2, 2, 3, 4, 5],
+            [1, 2, 0, 3, 4, 5, 2],
+        ]
+    )
+
+
+def test_selective_simplex_count_checkpoints_completed_stages():
+    checkpoints = []
+
+    result = count_graph_structures(
+        _toy_edge_index(),
+        num_nodes=6,
+        count_types=("simplices",),
+        checkpoint=lambda stage, _result: checkpoints.append(stage),
+    )
+
+    assert result["num_edges"] == 7
+    assert result["num_2_simplices"] == 1
+    assert result["num_2_cells"] is None
+    assert checkpoints == ["graph", "simplices"]
+
+
+def test_selective_cell_count_checkpoints_completed_stages():
+    checkpoints = []
+
+    result = count_graph_structures(
+        _toy_edge_index(),
+        num_nodes=6,
+        count_types=("cells",),
+        checkpoint=lambda stage, _result: checkpoints.append(stage),
+    )
+
+    assert result["num_edges"] == 7
+    assert result["num_2_simplices"] is None
+    assert result["num_2_cells"] == 2
+    assert checkpoints == ["graph", "cells"]
+
+
+def test_count_type_parser_is_ordered_and_rejects_unknown_values():
+    assert _parse_count_types("cells,simplices") == ("simplices", "cells")
+    with pytest.raises(
+        argparse.ArgumentTypeError, match="Unknown count types"
+    ):
+        _parse_count_types("edges")
+
+
+def test_upsert_preserves_results_from_a_separate_count_process():
+    rows = [{"dataset": "ogbn_products", "num_2_simplices": "123"}]
+
+    _upsert_dataset_row(
+        rows,
+        {
+            "dataset": "ogbn_products",
+            "num_2_simplices": None,
+            "num_2_cells": 45,
+        },
+    )
+
+    assert rows == [
+        {
+            "dataset": "ogbn_products",
+            "num_2_simplices": "123",
+            "num_2_cells": 45,
+        }
+    ]
