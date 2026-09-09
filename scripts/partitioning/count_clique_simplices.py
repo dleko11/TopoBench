@@ -25,6 +25,7 @@ from topobench.utils.config_resolvers import register_all_resolvers
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT = Path("outputs/full_graph_structure_counts.csv")
 COUNT_TYPES = ("simplices", "cells")
+SUPPORTED_COUNT_TYPES = ("graph", *COUNT_TYPES)
 COUNT_STAGE_INDEX = {
     "graph": 1,
     "simplices": 2,
@@ -76,6 +77,23 @@ def build_simple_undirected_graph(
     return graph
 
 
+def count_simple_undirected_edges(
+    edge_index: torch.Tensor,
+    num_nodes: int,
+) -> int:
+    """Count unique undirected edges without constructing a graph object."""
+    if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+        raise ValueError("edge_index must have shape [2, num_edges].")
+
+    edge_index_cpu = edge_index.detach().cpu()
+    sources = edge_index_cpu[0].to(torch.int64)
+    targets = edge_index_cpu[1].to(torch.int64)
+    lower = torch.minimum(sources, targets)
+    upper = torch.maximum(sources, targets)
+    edge_keys = lower.mul_(num_nodes).add_(upper)
+    return int(torch.unique(edge_keys).numel())
+
+
 def count_triangles_from_edges(
     num_nodes: int,
     edges: Iterable[tuple[int, int]],
@@ -104,16 +122,15 @@ def count_graph_structures(
     checkpoint: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Count the structures used by the full-graph benchmark liftings."""
-    unknown = set(count_types) - set(COUNT_TYPES)
+    unknown = set(count_types) - set(SUPPORTED_COUNT_TYPES)
     if unknown:
         raise ValueError(f"Unknown count types: {', '.join(sorted(unknown))}")
     if not count_types:
         raise ValueError("At least one count type is required.")
 
-    graph = build_simple_undirected_graph(edge_index, num_nodes)
     result = {
         "num_nodes": num_nodes,
-        "num_edges": graph.number_of_edges(),
+        "num_edges": None,
         "num_hyperedges": num_nodes,
         "num_2_cells": None,
         "num_2_simplices": None,
@@ -126,6 +143,18 @@ def count_graph_structures(
         ),
         "simplicial_definition": "triangles from clique lifting",
     }
+
+    if count_types == ("graph",):
+        result["num_edges"] = count_simple_undirected_edges(
+            edge_index,
+            num_nodes,
+        )
+        if checkpoint is not None:
+            checkpoint("graph", dict(result))
+        return result
+
+    graph = build_simple_undirected_graph(edge_index, num_nodes)
+    result["num_edges"] = graph.number_of_edges()
     if checkpoint is not None:
         checkpoint("graph", dict(result))
 
@@ -175,12 +204,14 @@ def _parse_datasets(value: str) -> tuple[str, ...]:
 
 def _parse_count_types(value: str) -> tuple[str, ...]:
     requested = {item.strip() for item in value.split(",") if item.strip()}
-    unknown = sorted(requested - set(COUNT_TYPES))
+    unknown = sorted(requested - set(SUPPORTED_COUNT_TYPES))
     if unknown:
         raise argparse.ArgumentTypeError(
             f"Unknown count types: {', '.join(unknown)}"
         )
-    selected = tuple(item for item in COUNT_TYPES if item in requested)
+    selected = tuple(
+        item for item in SUPPORTED_COUNT_TYPES if item in requested
+    )
     if not selected:
         raise argparse.ArgumentTypeError(
             "At least one count type is required."
@@ -201,7 +232,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--count-types",
         type=_parse_count_types,
         default=COUNT_TYPES,
-        help="Comma-separated expensive counts: simplices,cells.",
+        help=(
+            "Comma-separated counts: graph,simplices,cells. Use graph alone "
+            "for lightweight node, edge, and hyperedge counts."
+        ),
     )
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--wandb-project")
