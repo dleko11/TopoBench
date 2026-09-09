@@ -290,8 +290,25 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
 
         assert isinstance(self._data, torch_geometric.data.Data)
         with track_phase("preprocessing_save"):
-            self.save(self.data_list, self.processed_paths[0])
+            self._save_processed_data(self.processed_paths[0])
         self._processed_data_in_memory = self._data, self.slices
+
+    def _save_processed_data(self, path: str) -> None:
+        """Save already-collated data without an in-memory serialization buffer.
+
+        Parameters
+        ----------
+        path : str
+            Destination path for the processed dataset.
+        """
+        temporary_path = f"{path}.tmp.{os.getpid()}"
+        payload = (self._data.to_dict(), self.slices, self._data.__class__)
+        try:
+            torch.save(payload, temporary_path)
+            os.replace(temporary_path, path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
 
     def load(self, path: str) -> None:
         r"""Load the dataset from the file path `path`.

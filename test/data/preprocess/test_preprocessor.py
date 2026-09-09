@@ -296,7 +296,7 @@ class TestPreProcessorProcessing:
                 preprocessor.collate = MagicMock(
                     return_value=(torch_geometric.data.Data(), {})
                 )
-                preprocessor.save = MagicMock()
+                preprocessor._save_processed_data = MagicMock()
 
                 # Mock the processed_paths property
                 with patch.object(type(preprocessor), 'processed_paths', new_callable=lambda: property(lambda self: [f"{tmpdir}/data.pt"])):
@@ -304,7 +304,9 @@ class TestPreProcessorProcessing:
 
                     assert len(preprocessor.data_list) == len(mock_data)
                     preprocessor.collate.assert_called_once()
-                    preprocessor.save.assert_called_once()
+                    preprocessor._save_processed_data.assert_called_once_with(
+                        f"{tmpdir}/data.pt"
+                    )
 
     def test_process_with_torch_geometric_data(self):
         """Test process method with torch_geometric.data.Data."""
@@ -318,7 +320,7 @@ class TestPreProcessorProcessing:
                 preprocessor.collate = MagicMock(
                     return_value=(torch_geometric.data.Data(), {})
                 )
-                preprocessor.save = MagicMock()
+                preprocessor._save_processed_data = MagicMock()
 
                 # Mock the processed_paths property
                 with patch.object(type(preprocessor), 'processed_paths', new_callable=lambda: property(lambda self: [f"{tmpdir}/data.pt"])):
@@ -344,7 +346,7 @@ class TestPreProcessorProcessing:
                 preprocessor.collate = MagicMock(
                     return_value=(torch_geometric.data.Data(), {})
                 )
-                preprocessor.save = MagicMock()
+                preprocessor._save_processed_data = MagicMock()
 
                 # Mock the processed_paths property
                 with patch.object(type(preprocessor), 'processed_paths', new_callable=lambda: property(lambda self: [f"{tmpdir}/data.pt"])):
@@ -722,7 +724,7 @@ class TestPreProcessorEdgeCases:
                 preprocessor.collate = MagicMock(
                     return_value=(torch_geometric.data.Data(), {})
                 )
-                preprocessor.save = MagicMock()
+                preprocessor._save_processed_data = MagicMock()
 
                 # Mock the processed_paths property
                 with patch.object(type(preprocessor), 'processed_paths', new_callable=lambda: property(lambda self: [f"{tmpdir}/data.pt"])):
