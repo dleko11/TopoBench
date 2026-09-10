@@ -10,6 +10,7 @@ wandb_entity="${wandb_entity:-topobench-scalability}"
 TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-}"
+FORCE_RELOAD_PREPROCESSING="${FORCE_RELOAD_PREPROCESSING:-false}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -144,6 +145,7 @@ run_final_full_ds_suite() {
     echo "Data seeds: ${DATA_SEEDS[*]}"
     echo "Test inference protocols: $TEST_INFERENCE_PROTOCOLS"
     echo "Dataloader num_workers override: ${DATALOADER_NUM_WORKERS:-config default}"
+    echo "Force preprocessing rebuild: $FORCE_RELOAD_PREPROCESSING"
 
     local spec dataset_alias dataset_config model_alias model_config
     local transform_kind lr weight_decay out_channels proj_dropout dropout
@@ -200,6 +202,7 @@ run_final_full_ds_suite() {
                 "model.feature_encoder.proj_dropout=${proj_dropout}"
                 "dataset.dataloader_params.batch_size=1"
                 "dataset.split_params.data_seed=${data_seed}"
+                "++dataset.parameters.force_reload_preprocessing=${FORCE_RELOAD_PREPROCESSING}"
                 "seed=${data_seed}"
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
