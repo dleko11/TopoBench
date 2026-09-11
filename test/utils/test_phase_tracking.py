@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import pytest
@@ -88,3 +89,21 @@ def test_initialization_records_cpu_sample_interval(monkeypatch) -> None:
     tracker.initialize()
 
     assert run.summary["tracking/cpu_memory_sample_interval_sec"] == 0.5
+
+
+def test_tracking_is_disabled_outside_owner_process(monkeypatch) -> None:
+    run = _Run()
+    owner_pid = os.getpid()
+    tracker = PhaseResourceTracker(WandbLogger(run))
+    monkeypatch.setattr(
+        "topobench.utils.phase_tracking.os.getpid",
+        lambda: owner_pid + 1,
+    )
+
+    tracker.initialize()
+    with tracker.track("feature_lifting"):
+        pass
+
+    assert not tracker.enabled
+    assert run.summary == {}
+    assert run.history == []

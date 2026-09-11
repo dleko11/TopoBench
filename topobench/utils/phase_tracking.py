@@ -158,6 +158,7 @@ class PhaseResourceTracker:
         loggers: Any,
         cpu_memory_sample_interval_sec: float = CPU_MEMORY_SAMPLE_INTERVAL_SEC,
     ) -> None:
+        self._owner_pid = os.getpid()
         self._wandb_runs = self._collect_wandb_runs(loggers)
         self._active_starts: dict[str, float] = {}
         self._summary_written = False
@@ -179,7 +180,7 @@ class PhaseResourceTracker:
         bool
             ``True`` when W&B marker logging can be attempted.
         """
-        return bool(self._wandb_runs)
+        return bool(self._wandb_runs) and os.getpid() == self._owner_pid
 
     def initialize(self) -> None:
         """Force W&B initialization and store stable ID maps in summary."""
