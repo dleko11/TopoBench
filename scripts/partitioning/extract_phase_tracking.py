@@ -57,13 +57,16 @@ REQUIRED_HISTORY_KEYS = (
     "tracking/global_step",
 )
 
-RESOURCE_HISTORY_KEYS = (
+BOUNDARY_RESOURCE_HISTORY_KEYS = (
     "tracking/resource/rss_mb",
     "tracking/resource/tree_rss_mb",
-    "tracking/resource/rss_peak_mb",
-    "tracking/resource/tree_rss_peak_mb",
     "tracking/resource/cuda_allocated_mb",
     "tracking/resource/cuda_reserved_mb",
+)
+
+PEAK_RESOURCE_HISTORY_KEYS = (
+    "tracking/resource/rss_peak_mb",
+    "tracking/resource/tree_rss_peak_mb",
     "tracking/resource/cuda_peak_allocated_mb",
     "tracking/resource/cuda_peak_reserved_mb",
 )
@@ -100,8 +103,16 @@ RUN_FIELDS = (
     "stream_q_test",
     "stream_num_workers",
     "cache_num_workers",
+    "cache_val",
+    "val_shuffle",
+    "cleanup_val_cache",
     "num_parts",
+    "partition_cache_namespace",
     "test_protocols",
+    "ensemble_runs",
+    "train_enabled",
+    "test_enabled",
+    "force_reload_preprocessing",
     "phase_tracking_available",
 )
 
@@ -111,6 +122,10 @@ PHASE_FIELDS = RUN_FIELDS + (
     "start_event_count",
     "end_event_count",
     "events_complete",
+    "first_start_timestamp",
+    "last_end_timestamp",
+    "first_start_runtime_sec",
+    "last_end_runtime_sec",
     "first_epoch",
     "last_epoch",
     "first_global_step",
@@ -221,6 +236,7 @@ def _run_metadata(spec: ProjectSpec, run: Any) -> dict[str, Any]:
     gpu_nvidia = metadata.get("gpu_nvidia") or []
     first_gpu = gpu_nvidia[0] if gpu_nvidia else {}
     split_params = dataset.get("split_params") or {}
+    dataset_parameters = dataset.get("parameters") or {}
     test_inference = config.get("test_inference") or {}
 
     return {
@@ -257,8 +273,18 @@ def _run_metadata(spec: ProjectSpec, run: Any) -> dict[str, Any]:
         "stream_q_test": stream.get("q_test"),
         "stream_num_workers": stream.get("num_workers"),
         "cache_num_workers": stream.get("cache_num_workers"),
+        "cache_val": stream.get("cache_val"),
+        "val_shuffle": stream.get("val_shuffle"),
+        "cleanup_val_cache": stream.get("cleanup_val_cache"),
         "num_parts": cluster.get("num_parts"),
+        "partition_cache_namespace": cluster.get("cache_namespace"),
         "test_protocols": _json_cell(test_inference.get("protocols")),
+        "ensemble_runs": test_inference.get("ensemble_runs"),
+        "train_enabled": config.get("train"),
+        "test_enabled": config.get("test"),
+        "force_reload_preprocessing": dataset_parameters.get(
+            "force_reload_preprocessing"
+        ),
         "phase_tracking_available": bool(_phase_id_map(summary)),
     }
 
@@ -275,16 +301,60 @@ def _extract_run_phases(
         )
 
     summary_keys = set(summary)
-    history_keys = list(REQUIRED_HISTORY_KEYS)
-    history_keys.extend(
-        key for key in RESOURCE_HISTORY_KEYS if key in summary_keys
+    history = list(
+        run.scan_history(
+            keys=[
+                *REQUIRED_HISTORY_KEYS,
+                "_timestamp",
+                "_runtime",
+                "_step",
+            ],
+            page_size=1000,
+        )
     )
-    history = list(run.scan_history(keys=history_keys, page_size=1000))
+    boundary_history = list(
+        run.scan_history(
+            keys=[
+                "tracking/phase_id",
+                *(
+                    key
+                    for key in BOUNDARY_RESOURCE_HISTORY_KEYS
+                    if key in summary_keys
+                ),
+            ],
+            page_size=1000,
+        )
+    )
+    peak_history = list(
+        run.scan_history(
+            keys=[
+                "tracking/phase_id",
+                *(
+                    key
+                    for key in PEAK_RESOURCE_HISTORY_KEYS
+                    if key in summary_keys
+                ),
+            ],
+            page_size=1000,
+        )
+    )
     phase_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for row in history:
         phase_id = row.get("tracking/phase_id")
         if isinstance(phase_id, int | float):
             phase_rows[int(phase_id)].append(row)
+
+    boundary_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in boundary_history:
+        phase_id = row.get("tracking/phase_id")
+        if isinstance(phase_id, int | float):
+            boundary_rows[int(phase_id)].append(row)
+
+    peak_rows: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for row in peak_history:
+        phase_id = row.get("tracking/phase_id")
+        if isinstance(phase_id, int | float):
+            peak_rows[int(phase_id)].append(row)
 
     if not phase_rows:
         raise ValueError(f"Run {run.path} has no phase history rows.")
@@ -292,8 +362,17 @@ def _extract_run_phases(
     extracted = []
     for phase_id, rows in phase_rows.items():
         end_rows = [row for row in rows if row.get("tracking/is_end") == 1]
-        start_count = sum(row.get("tracking/is_start") == 1 for row in rows)
+        start_rows = [
+            row for row in rows if row.get("tracking/is_start") == 1
+        ]
+        start_count = len(start_rows)
+        resource_boundary_rows = boundary_rows.get(phase_id, [])
+        resource_peak_rows = peak_rows.get(phase_id, [])
         durations = _finite_values(end_rows, "tracking/duration_sec")
+        start_timestamps = _finite_values(start_rows, "_timestamp")
+        end_timestamps = _finite_values(end_rows, "_timestamp")
+        start_runtimes = _finite_values(start_rows, "_runtime")
+        end_runtimes = _finite_values(end_rows, "_runtime")
         epochs = _nonnegative_int_values(end_rows, "tracking/epoch")
         global_steps = _nonnegative_int_values(
             end_rows, "tracking/global_step"
@@ -306,6 +385,18 @@ def _extract_run_phases(
                 "start_event_count": start_count,
                 "end_event_count": len(end_rows),
                 "events_complete": start_count == len(end_rows),
+                "first_start_timestamp": (
+                    min(start_timestamps) if start_timestamps else None
+                ),
+                "last_end_timestamp": (
+                    max(end_timestamps) if end_timestamps else None
+                ),
+                "first_start_runtime_sec": (
+                    min(start_runtimes) if start_runtimes else None
+                ),
+                "last_end_runtime_sec": (
+                    max(end_runtimes) if end_runtimes else None
+                ),
                 "first_epoch": _min_or_none(epochs),
                 "last_epoch": _max_int_or_none(epochs),
                 "first_global_step": _min_or_none(global_steps),
@@ -320,44 +411,50 @@ def _extract_run_phases(
                 "duration_min_sec": min(durations) if durations else None,
                 "duration_max_sec": max(durations) if durations else None,
                 "rss_boundary_max_mb": _max_or_none(
-                    _finite_values(rows, "tracking/resource/rss_mb")
+                    _finite_values(
+                        resource_boundary_rows,
+                        "tracking/resource/rss_mb",
+                    )
                 ),
                 "tree_rss_boundary_max_mb": _max_or_none(
-                    _finite_values(rows, "tracking/resource/tree_rss_mb")
+                    _finite_values(
+                        resource_boundary_rows,
+                        "tracking/resource/tree_rss_mb",
+                    )
                 ),
                 "rss_peak_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_peak_rows,
                         "tracking/resource/rss_peak_mb",
                     )
                 ),
                 "tree_rss_peak_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_peak_rows,
                         "tracking/resource/tree_rss_peak_mb",
                     )
                 ),
                 "cuda_allocated_end_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_boundary_rows,
                         "tracking/resource/cuda_allocated_mb",
                     )
                 ),
                 "cuda_reserved_end_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_boundary_rows,
                         "tracking/resource/cuda_reserved_mb",
                     )
                 ),
                 "cuda_peak_allocated_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_peak_rows,
                         "tracking/resource/cuda_peak_allocated_mb",
                     )
                 ),
                 "cuda_peak_reserved_max_mb": _max_or_none(
                     _finite_values(
-                        end_rows,
+                        resource_peak_rows,
                         "tracking/resource/cuda_peak_reserved_mb",
                     )
                 ),

@@ -15,6 +15,7 @@ CACHE_VAL="${CACHE_VAL:-true}"
 VAL_SHUFFLE="${VAL_SHUFFLE:-false}"
 MAX_CONCURRENT_RUNS="${MAX_CONCURRENT_RUNS:-}"
 PARTITION_GRID_OVERRIDE="${PARTITION_GRID_OVERRIDE:-}"
+PARTITION_CACHE_NAMESPACE="${PARTITION_CACHE_NAMESPACE:-}"
 FULL_GRAPH_BASELINE="${FULL_GRAPH_BASELINE:-false}"
 FORCE_RELOAD_PREPROCESSING="${FORCE_RELOAD_PREPROCESSING:-false}"
 
@@ -67,6 +68,14 @@ validate_mode_options() {
     fi
     if [[ "$FULL_GRAPH_BASELINE" == "true" && -n "$PARTITION_GRID_OVERRIDE" ]]; then
         echo "ERROR: PARTITION_GRID_OVERRIDE cannot be used with FULL_GRAPH_BASELINE=true." >&2
+        exit 1
+    fi
+    if [[ "$FULL_GRAPH_BASELINE" == "true" && -n "$PARTITION_CACHE_NAMESPACE" ]]; then
+        echo "ERROR: PARTITION_CACHE_NAMESPACE is only valid for partitioned runs." >&2
+        exit 1
+    fi
+    if [[ -n "$PARTITION_CACHE_NAMESPACE" && ! "$PARTITION_CACHE_NAMESPACE" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+        echo "ERROR: PARTITION_CACHE_NAMESPACE contains unsupported characters." >&2
         exit 1
     fi
 }
@@ -276,6 +285,7 @@ run_final_partitioning_suite() {
         echo "Validation cache workers: $CACHE_NUM_WORKERS"
         echo "Validation cache enabled: $CACHE_VAL"
         echo "Validation shuffle: $VAL_SHUFFLE"
+        echo "Partition cache namespace: ${PARTITION_CACHE_NAMESPACE:-(default)}"
     else
         echo "Dataloader workers: $STREAM_NUM_WORKERS"
         echo "Force preprocessing rebuild: $FORCE_RELOAD_PREPROCESSING"
@@ -372,6 +382,11 @@ run_final_partitioning_suite() {
                     "++dataset.loader.parameters.stream.val_shuffle=${VAL_SHUFFLE}"
                     "++dataset.loader.parameters.stream.cleanup_val_cache=${CACHE_VAL}"
                 )
+                if [[ -n "$PARTITION_CACHE_NAMESPACE" ]]; then
+                    cmd+=(
+                        "++dataset.loader.parameters.cluster.cache_namespace=${PARTITION_CACHE_NAMESPACE}"
+                    )
+                fi
             else
                 cmd+=(
                     "++dataset.parameters.force_reload_preprocessing=${FORCE_RELOAD_PREPROCESSING}"
