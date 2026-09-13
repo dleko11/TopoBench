@@ -2,6 +2,7 @@
 
 import argparse
 
+import networkx as nx
 import pytest
 import torch
 
@@ -9,7 +10,9 @@ from scripts.partitioning import count_clique_simplices
 from scripts.partitioning.count_clique_simplices import (
     _parse_count_types,
     _upsert_dataset_row,
+    count_filtered_cycle_basis,
     count_graph_structures,
+    count_triangles_from_edge_index,
 )
 
 
@@ -52,6 +55,45 @@ def test_selective_cell_count_checkpoints_completed_stages():
     assert result["num_2_simplices"] is None
     assert result["num_2_cells"] == 2
     assert checkpoints == ["graph", "cells"]
+
+
+@pytest.mark.parametrize("max_cycle_length", [2, 3, 4, 9])
+def test_streamed_cycle_count_matches_networkx(max_cycle_length):
+    graph = nx.Graph()
+    graph.add_nodes_from(range(9))
+    graph.add_edges_from(
+        [
+            (0, 1),
+            (1, 2),
+            (2, 0),
+            (2, 3),
+            (3, 4),
+            (4, 5),
+            (5, 2),
+            (6, 7),
+            (7, 8),
+            (8, 6),
+            (8, 8),
+        ]
+    )
+    expected = sum(
+        1
+        for cycle in nx.cycle_basis(graph)
+        if 1 < len(cycle) <= max_cycle_length
+    )
+
+    assert count_filtered_cycle_basis(graph, max_cycle_length) == expected
+
+
+def test_direct_edge_index_triangle_count_simplifies_graph():
+    edge_index = torch.tensor(
+        [
+            [0, 1, 2, 1, 0, 3, 3],
+            [1, 2, 0, 0, 1, 3, 4],
+        ]
+    )
+
+    assert count_triangles_from_edge_index(edge_index, num_nodes=5) == 1
 
 
 def test_graph_only_count_skips_networkx_construction(monkeypatch):

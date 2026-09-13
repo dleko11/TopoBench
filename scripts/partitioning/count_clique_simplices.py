@@ -99,19 +99,84 @@ def count_triangles_from_edges(
     edges: Iterable[tuple[int, int]],
 ) -> int:
     """Count graph triangles without returning their node tuples."""
-    edge_list = edges if isinstance(edges, list) else list(edges)
     clique_graph = ig.Graph(
         n=num_nodes,
-        edges=edge_list,
+        edges=edges,
         directed=False,
     )
     clique_graph.simplify(multiple=True, loops=True)
+    return count_triangles_in_igraph(clique_graph)
+
+
+def count_triangles_from_edge_index(
+    edge_index: torch.Tensor,
+    num_nodes: int,
+) -> int:
+    """Count graph triangles directly from a PyG edge-index tensor."""
+    if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+        raise ValueError("edge_index must have shape [2, num_edges].")
+
+    edges = edge_index.detach().cpu().T.contiguous().numpy()
+    clique_graph = ig.Graph(
+        n=num_nodes,
+        edges=edges,
+        directed=False,
+    )
+    clique_graph.simplify(multiple=True, loops=True)
+    return count_triangles_in_igraph(clique_graph)
+
+
+def count_triangles_in_igraph(clique_graph: ig.Graph) -> int:
+    """Count triangles in an undirected igraph without listing them."""
     degrees = np.asarray(clique_graph.degree(), dtype=np.int64)
     connected_triples = sum(
         int(degree) * (int(degree) - 1) // 2 for degree in degrees
     )
+    if connected_triples == 0:
+        return 0
     transitivity = float(clique_graph.transitivity_undirected(mode="zero"))
     return int(round(transitivity * connected_triples / 3))
+
+
+def count_filtered_cycle_basis(
+    graph: nx.Graph,
+    max_cycle_length: int,
+) -> int:
+    """Count eligible Paton-basis cycles without storing the full basis."""
+    remaining_nodes = set(graph.nodes())
+    count = 0
+
+    while remaining_nodes:
+        root = remaining_nodes.pop()
+        stack = [root]
+        predecessors = {root: root}
+        used = {root: set()}
+
+        while stack:
+            node = stack.pop()
+            node_used = used[node]
+            for neighbor in graph[node]:
+                if neighbor not in used:
+                    predecessors[neighbor] = node
+                    stack.append(neighbor)
+                    used[neighbor] = {node}
+                elif neighbor == node:
+                    continue
+                elif neighbor not in node_used:
+                    neighbor_used = used[neighbor]
+                    cycle_length = 2
+                    predecessor = predecessors[node]
+                    while predecessor not in neighbor_used:
+                        cycle_length += 1
+                        predecessor = predecessors[predecessor]
+                    cycle_length += 1
+                    if cycle_length <= max_cycle_length:
+                        count += 1
+                    used[neighbor].add(node)
+
+        remaining_nodes.difference_update(predecessors)
+
+    return count
 
 
 def count_graph_structures(
@@ -153,22 +218,18 @@ def count_graph_structures(
             checkpoint("graph", dict(result))
         return result
 
-    graph = build_simple_undirected_graph(edge_index, num_nodes)
-    result["num_edges"] = graph.number_of_edges()
+    result["num_edges"] = count_simple_undirected_edges(
+        edge_index,
+        num_nodes,
+    )
     if checkpoint is not None:
         checkpoint("graph", dict(result))
 
     if "simplices" in count_types:
         simplex_started = time.perf_counter()
-        if "cells" not in count_types:
-            edges = list(graph.edges())
-            del graph
-            gc.collect()
-        else:
-            edges = graph.edges()
-        result["num_2_simplices"] = count_triangles_from_edges(
+        result["num_2_simplices"] = count_triangles_from_edge_index(
+            edge_index,
             num_nodes,
-            edges,
         )
         result["simplex_count_time_sec"] = (
             time.perf_counter() - simplex_started
@@ -177,13 +238,15 @@ def count_graph_structures(
             checkpoint("simplices", dict(result))
 
     if "cells" in count_types:
+        graph = build_simple_undirected_graph(edge_index, num_nodes)
         cell_started = time.perf_counter()
-        cycles = nx.cycle_basis(graph)
-        result["num_2_cells"] = sum(
-            1 for cycle in cycles if 1 < len(cycle) <= max_cell_length
+        result["num_2_cells"] = count_filtered_cycle_basis(
+            graph,
+            max_cell_length,
         )
         result["cell_count_time_sec"] = time.perf_counter() - cell_started
-        del cycles
+        del graph
+        gc.collect()
         if checkpoint is not None:
             checkpoint("cells", dict(result))
 
