@@ -142,13 +142,13 @@ FINAL_SPECS=(
     "reddit|graph/reddit_for_partitioning|cell_topotune|cell/topotune|cell|0.001|0.0001|64|0.2|7000|20|0.2"
     "reddit|graph/reddit_for_partitioning|scn|simplicial/scn|simplicial|0.001|0.001|64|0.3|7000|25|"
     "reddit|graph/reddit_for_partitioning|sccnn|simplicial/sccnn_custom|simplicial|0.001|0.001|64|0.3|7000|20|"
-    "ogbn_products|graph/ogbn_products_for_partitioning|gcn|graph/gcn|graph|0.01|0|128|0.2|1000|20|0.0"
-    "ogbn_products|graph/ogbn_products_for_partitioning|edgnn|hypergraph/edgnn|hypergraph|0.01|0|128|0.2|1000|20|0.0"
-    "ogbn_products|graph/ogbn_products_for_partitioning|unignn|hypergraph/unignn|hypergraph|0.01|0|128|0.2|1000|20|"
-    "ogbn_products|graph/ogbn_products_for_partitioning|cwn|cell/cwn|cell|0.01|0|128|0.2|1000|20|"
-    "ogbn_products|graph/ogbn_products_for_partitioning|cell_topotune|cell/topotune|cell|0.01|0|128|0.2|1000|20|0.0"
-    "ogbn_products|graph/ogbn_products_for_partitioning|scn|simplicial/scn|simplicial|0.01|0|128|0.2|1000|20|"
-    "ogbn_products|graph/ogbn_products_for_partitioning|sccnn|simplicial/sccnn_custom|simplicial|0.01|0|128|0.2|1000|20|"
+    "ogbn_products|graph/ogbn_products_for_partitioning|gcn|graph/gcn|graph|0.0001|0.0001|128|0.1|15000|25|0.2"
+    "ogbn_products|graph/ogbn_products_for_partitioning|edgnn|hypergraph/edgnn|hypergraph|0.001|0.0001|128|0.1|20000|25|0.2"
+    "ogbn_products|graph/ogbn_products_for_partitioning|unignn|hypergraph/unignn|hypergraph|0.0001|0.0001|128|0.0|15000|20|"
+    "ogbn_products|graph/ogbn_products_for_partitioning|cwn|cell/cwn|cell|0.0001|0.0001|128|0.0|15000|20|"
+    "ogbn_products|graph/ogbn_products_for_partitioning|cell_topotune|cell/topotune|cell|0.001|0.00001|64|0.2|15000|25|0.5"
+    "ogbn_products|graph/ogbn_products_for_partitioning|scn|simplicial/scn|simplicial|0.0001|0.0001|128|0.0|15000|20|"
+    "ogbn_products|graph/ogbn_products_for_partitioning|sccnn|simplicial/sccnn_custom|simplicial|0.0001|0.0001|128|0.0|15000|20|"
 )
 
 RUN_SPECS=()
