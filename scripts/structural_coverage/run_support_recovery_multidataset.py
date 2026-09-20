@@ -237,8 +237,15 @@ def make_q_plot(sweep: dict[int, dict], *, dataset: str):
     ax.set_xlim(min(q_values), max(q_values))
     ax.set_xticks(q_values)
     ax.set_xticklabels([str(q) for q in q_values], rotation=35 if len(q_values) > 7 else 0)
-    ax.set_ylim(-0.015, 1.025)
-    ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
+    if dataset == "amazon_ratings":
+        ax.set_ylim(0.75, 1.025)
+        ax.set_yticks([0.75, 0.80, 0.85, 0.90, 0.95, 1.0])
+    elif dataset == "cora_full":
+        ax.set_ylim(0.50, 1.025)
+        ax.set_yticks([0.50, 0.60, 0.70, 0.80, 0.90, 1.0])
+    else:
+        ax.set_ylim(-0.015, 1.025)
+        ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
     ax.set_xlabel("Clusters per mini-batch, $q$")
     ax.set_ylabel("Full-graph references")

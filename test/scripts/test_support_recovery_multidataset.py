@@ -233,6 +233,43 @@ def test_q_export_and_plot_match_seed_level_epoch_endpoint(tmp_path):
         plt.close(figure)
 
 
+def test_q_plot_uses_dataset_specific_percentage_axes():
+    import matplotlib.pyplot as plt
+
+    from scripts.structural_coverage.run_support_recovery_multidataset import (
+        FAMILIES,
+        make_q_plot,
+    )
+    from scripts.structural_coverage.support_recovery_multidataset import analyze_q_sweep
+
+    references = {
+        family: [ReferenceStructure((family, 0), frozenset({0}))]
+        for family in FAMILIES
+    }
+    sweep = analyze_q_sweep(
+        references, labels=[0, 1, 2, 3], K=4,
+        q_values=[1, 2, 4], seeds=[0, 1], epochs=3,
+    )
+
+    amazon = make_q_plot(sweep, dataset="amazon_ratings")
+    cora = make_q_plot(sweep, dataset="cora_full")
+    questions = make_q_plot(sweep, dataset="questions")
+    try:
+        assert amazon.axes[0].get_ylim() == pytest.approx((0.75, 1.025))
+        assert list(amazon.axes[0].get_yticks()) == pytest.approx(
+            [0.75, 0.80, 0.85, 0.90, 0.95, 1.0]
+        )
+        assert cora.axes[0].get_ylim() == pytest.approx((0.50, 1.025))
+        assert list(cora.axes[0].get_yticks()) == pytest.approx(
+            [0.50, 0.60, 0.70, 0.80, 0.90, 1.0]
+        )
+        assert questions.axes[0].get_ylim() == pytest.approx((-0.015, 1.025))
+    finally:
+        plt.close(amazon)
+        plt.close(cora)
+        plt.close(questions)
+
+
 def test_q_runner_writes_all_three_family_curves_from_one_graph(tmp_path, monkeypatch):
     import csv
     import numpy as np
