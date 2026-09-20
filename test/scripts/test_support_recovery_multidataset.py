@@ -162,3 +162,110 @@ def test_q_sweep_rejects_invalid_grid(q_values):
             references, labels=[0, 1, 2, 3], K=4,
             q_values=q_values, seeds=[0], epochs=3,
         )
+
+
+def test_q_grids_are_valid_and_include_selected_training_size():
+    from scripts.structural_coverage.run_support_recovery_multidataset import (
+        DATASETS,
+        Q_GRIDS,
+    )
+
+    for dataset, grid in Q_GRIDS.items():
+        K = DATASETS[dataset]["K"]
+        assert grid[0] == 1
+        assert grid[-1] == K
+        assert DATASETS[dataset]["q"] in grid
+        assert grid == sorted(set(grid))
+        assert all(K % q == 0 for q in grid)
+
+
+def test_q_export_and_plot_match_seed_level_epoch_endpoint(tmp_path):
+    import csv
+    import matplotlib.pyplot as plt
+
+    from scripts.structural_coverage.run_support_recovery_multidataset import (
+        FAMILIES,
+        export_q_sweep,
+        make_q_plot,
+    )
+    from scripts.structural_coverage.support_recovery_multidataset import analyze_q_sweep
+
+    references = {
+        family: [
+            ReferenceStructure((family, "one"), frozenset({0})),
+            ReferenceStructure((family, "pair"), frozenset({0, 1})),
+            ReferenceStructure((family, "wide"), frozenset({0, 1, 2})),
+        ]
+        for family in FAMILIES
+    }
+    sweep = analyze_q_sweep(
+        references, labels=[0, 1, 2, 3], K=4,
+        q_values=[1, 2, 4], seeds=[0, 1], epochs=3,
+    )
+    export_q_sweep(
+        sweep, dataset="cora_full", output_dir=tmp_path,
+        input_manifest={"dataset": "cora_full", "partition_source": "toy"},
+    )
+    with (tmp_path / "q_recovery_source_data.csv").open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 9
+    q2_cell = next(row for row in rows if row["family"] == "cellular"
+                   and int(row["q"]) == 2)
+    source = sweep[2]["families"]["cellular"]
+    assert int(q2_cell["reference_count"]) == 3
+    assert int(q2_cell["q_observable_count"]) == 2
+    assert float(q2_cell["empirical_mean"]) == source["coverage_mean"][-1]
+    assert float(q2_cell["empirical_sample_sd"]) == source["coverage_sample_sd"][-1]
+    assert [int(q2_cell[f"seed_{seed}_count"]) for seed in (0, 1)] == [
+        source["counts_by_seed"][seed][-1] for seed in (0, 1)
+    ]
+
+    figure = make_q_plot(sweep, dataset="cora_full")
+    try:
+        ax = figure.axes[0]
+        assert ax.get_xlabel() == "Clusters per mini-batch, $q$"
+        assert list(ax.lines[1].get_xdata()) == [1, 2, 4]
+        assert list(ax.lines[1].get_ydata()) == [
+            sweep[q]["families"]["cellular"]["coverage_mean"][-1]
+            for q in (1, 2, 4)
+        ]
+    finally:
+        plt.close(figure)
+
+
+def test_q_runner_writes_all_three_family_curves_from_one_graph(tmp_path, monkeypatch):
+    import csv
+    import numpy as np
+
+    from scripts.structural_coverage import run_support_recovery_multidataset as runner
+
+    edges = np.asarray([
+        [0, 1, 1, 2, 2, 0],
+        [1, 0, 2, 1, 0, 2],
+    ], dtype=np.int64)
+    monkeypatch.setitem(runner.DATASETS, "cora_full", {
+        "K": 4, "q": 2, "nodes": 4, "counts": (4, 1, 1),
+    })
+    monkeypatch.setitem(runner.Q_GRIDS, "cora_full", [1, 2, 4])
+    monkeypatch.setattr(runner, "load_graph", lambda *args, **kwargs: (edges, 4))
+    monkeypatch.setattr(
+        runner, "load_saved_partition",
+        lambda *args, **kwargs: (
+            np.asarray([0, 1, 2, 3]), {"dataset": "cora_full"}
+        ),
+    )
+
+    output = runner.run_q_sweep_one(
+        "cora_full", source_root=tmp_path, partition_root=tmp_path,
+        coauthor_root=tmp_path, cora_edge_index=tmp_path / "unused.npy",
+        output_root=tmp_path, epochs=3, seeds=[0, 1],
+    )
+
+    assert output["q_values"] == [1, 2, 4]
+    assert output["reference_counts"] == {
+        "hypergraph": 4, "cellular": 1, "simplicial": 1,
+    }
+    with (tmp_path / "cora_full" / "q_recovery_source_data.csv").open() as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 9
+    assert (tmp_path / "cora_full" / "q_recovery.png").exists()
