@@ -1,0 +1,164 @@
+"""Tests for the support-only, multi-dataset recovery counter."""
+
+import pytest
+
+from scripts.structural_coverage.recovery_core import (
+    ReferenceStructure,
+    generate_epoch_schedules,
+    support_available_ids,
+)
+from scripts.structural_coverage.support_recovery_multidataset import (
+    analyze_recovery,
+    build_signature_groups,
+    count_support_by_epoch,
+    labels_from_partition,
+    validate_ordered_graph,
+)
+
+
+def test_support_counter_matches_explicit_batch_node_oracle():
+    references = [
+        ReferenceStructure(("one", 0), frozenset({0})),
+        ReferenceStructure(("two", 0), frozenset({0, 1})),
+        ReferenceStructure(("two", 1), frozenset({0, 1})),
+        ReferenceStructure(("three", 0), frozenset({0, 1, 2})),
+    ]
+    labels = [0, 1, 2, 3]
+    schedules = generate_epoch_schedules(4, 2, 6, 7)
+    groups, histogram = build_signature_groups(references, labels, q=2)
+
+    observed = count_support_by_epoch(
+        groups, K=4, q=2, schedules=schedules
+    )
+    seen = set()
+    oracle = [0]
+    for epoch_groups in schedules:
+        for batch in epoch_groups:
+            seen.update(support_available_ids(references, batch))
+        oracle.append(len(seen))
+
+    assert observed == oracle
+    assert histogram == {1: 1, 2: 2, 3: 1}
+    assert observed[1] >= 1
+    assert observed[-1] <= 3  # The span-three reference is unobservable.
+
+
+def test_support_counter_rejects_invalid_node_labels():
+    references = [ReferenceStructure(("one", 0), frozenset({4}))]
+    with pytest.raises(ValueError, match="node outside partition"):
+        build_signature_groups(references, [0, 1, 2, 3], q=2)
+
+
+def test_support_counter_does_not_mutate_group_state_between_seeds():
+    references = [ReferenceStructure(("two", 0), frozenset({0, 1}))]
+    groups, _ = build_signature_groups(references, [0, 1, 2, 3], q=2)
+    schedules = generate_epoch_schedules(4, 2, 4, 3)
+
+    first = count_support_by_epoch(groups, K=4, q=2, schedules=schedules)
+    second = count_support_by_epoch(groups, K=4, q=2, schedules=schedules)
+
+    assert first == second
+    assert first[0] == 0
+
+
+def test_partition_labels_preserve_original_node_coordinates():
+    labels = labels_from_partition(
+        partptr=[0, 2, 4],
+        perm_to_global=[2, 0, 3, 1],
+        train_mask_perm=[True, False, True, False],
+    )
+    assert labels.tolist() == [0, 1, 0, 1]
+
+
+def test_partition_rejects_inactive_cluster_and_duplicate_node():
+    with pytest.raises(ValueError, match="inactive cluster"):
+        labels_from_partition(
+            partptr=[0, 2, 4],
+            perm_to_global=[2, 0, 3, 1],
+            train_mask_perm=[True, False, False, False],
+        )
+    with pytest.raises(ValueError, match="permutation"):
+        labels_from_partition(
+            partptr=[0, 2, 4],
+            perm_to_global=[2, 0, 3, 3],
+            train_mask_perm=[True, False, True, False],
+        )
+
+
+def test_graph_manifest_rejects_ordered_edge_mismatch():
+    import hashlib
+    import numpy as np
+
+    edge_index = np.asarray([[0, 1], [1, 0]], dtype=np.int64)
+    manifest = {
+        "num_nodes": 2,
+        "num_edges_directed": 2,
+        "edge_order_sha256": hashlib.sha256(edge_index.tobytes()).hexdigest(),
+    }
+    validate_ordered_graph(edge_index, num_nodes=2, manifest=manifest)
+    with pytest.raises(ValueError, match="ordered edge hash"):
+        validate_ordered_graph(edge_index[:, ::-1], num_nodes=2, manifest=manifest)
+
+
+def test_analysis_uses_fixed_reference_denominator_and_exact_theory():
+    references = {
+        "cellular": [
+            ReferenceStructure(("a",), frozenset({0})),
+            ReferenceStructure(("b",), frozenset({0, 1})),
+            ReferenceStructure(("c",), frozenset({0, 1, 2})),
+        ]
+    }
+    result = analyze_recovery(
+        references,
+        labels=[0, 1, 2, 3],
+        K=4,
+        q=2,
+        seeds=[0, 1],
+        epochs=3,
+    )
+    family = result["families"]["cellular"]
+
+    assert family["reference_count"] == 3
+    assert family["observable_count"] == 2
+    assert family["span_histogram"] == {1: 1, 2: 1, 3: 1}
+    assert family["expected_coverage"][0] == 0
+    assert family["expected_coverage"][1] == pytest.approx(4 / 9)
+    assert len(family["counts_by_seed"]) == 2
+    assert all(len(counts) == 4 for counts in family["counts_by_seed"].values())
+
+
+def test_q_sweep_matches_independent_seeded_recovery_and_endpoints():
+    from scripts.structural_coverage.support_recovery_multidataset import analyze_q_sweep
+
+    references = {
+        "cellular": [
+            ReferenceStructure(("one",), frozenset({0})),
+            ReferenceStructure(("pair",), frozenset({0, 1})),
+            ReferenceStructure(("wide",), frozenset({0, 1, 2})),
+        ]
+    }
+    labels = [0, 1, 2, 3]
+    sweep = analyze_q_sweep(
+        references, labels=labels, K=4, q_values=[1, 2, 4],
+        seeds=[0, 1], epochs=3,
+    )
+
+    for q in (1, 2, 4):
+        independent = analyze_recovery(
+            references, labels=labels, K=4, q=q, seeds=[0, 1], epochs=3,
+        )
+        assert sweep[q]["families"]["cellular"] == independent["families"]["cellular"]
+    assert sweep[1]["families"]["cellular"]["counts_by_seed"][0] == [0, 1, 1, 1]
+    assert sweep[4]["families"]["cellular"]["counts_by_seed"][0] == [0, 3, 3, 3]
+
+
+@pytest.mark.parametrize("q_values", [[1, 3, 4], [1, 2, 2], [2, 1]])
+def test_q_sweep_rejects_invalid_grid(q_values):
+    from scripts.structural_coverage.support_recovery_multidataset import analyze_q_sweep
+
+    references = {"cellular": [ReferenceStructure(("one",), frozenset({0}))]}
+    with pytest.raises(ValueError, match="q grid"):
+        analyze_q_sweep(
+            references, labels=[0, 1, 2, 3], K=4,
+            q_values=q_values, seeds=[0], epochs=3,
+        )
