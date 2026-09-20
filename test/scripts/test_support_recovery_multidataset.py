@@ -223,7 +223,10 @@ def test_q_export_and_plot_match_seed_level_epoch_endpoint(tmp_path):
     figure = make_q_plot(sweep, dataset="cora_full")
     try:
         ax = figure.axes[0]
-        assert ax.get_xlabel() == "Clusters per mini-batch, $q$"
+        assert ax.get_xlabel() == "$q$"
+        assert ax.get_ylabel() == ""
+        assert ax.get_title() == "Cora Full"
+        assert not figure.texts
         assert list(ax.lines[1].get_xdata()) == [1, 2, 4]
         assert list(ax.lines[1].get_ydata()) == [
             sweep[q]["families"]["cellular"]["coverage_mean"][-1]

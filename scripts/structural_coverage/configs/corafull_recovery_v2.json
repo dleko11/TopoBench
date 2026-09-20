@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "dataset": "cora_full",
+  "expected_num_nodes": 19793,
+  "primary": {
+    "K": 32,
+    "q_values": [2, 4, 8, 16],
+    "families": ["hypergraph", "simplicial", "cellular"]
+  },
+  "additional": [
+    {"K": 64, "q_values": [8], "families": ["cellular"]}
+  ],
+  "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  "epochs": 200,
+  "cycle_max_length": 9,
+  "hypergraph_identity": "center_indexed",
+  "entropy_normalization": "all_reference",
+  "cluster_policy": "training_active_require_all",
+  "split_seed": 0,
+  "split_type": "random",
+  "learning_setting": "transductive",
+  "train_prop": 0.7,
+  "sample_every": 5
+}

@@ -212,8 +212,6 @@ def make_q_plot(sweep: dict[int, dict], *, dataset: str):
     """Plot epoch-end empirical recovery against mini-batch cluster count."""
     configure_style()
     q_values = sorted(sweep)
-    first = sweep[q_values[0]]
-    horizon = first["epochs"]
     fig, ax = plt.subplots(figsize=(5.3, 3.5))
     for family in FAMILIES:
         means = [sweep[q]["families"][family]["coverage_mean"][-1]
@@ -247,17 +245,13 @@ def make_q_plot(sweep: dict[int, dict], *, dataset: str):
         ax.set_ylim(-0.015, 1.025)
         ax.set_yticks([0, 0.25, 0.5, 0.75, 1.0])
     ax.yaxis.set_major_formatter(PercentFormatter(xmax=1.0, decimals=0))
-    ax.set_xlabel("Clusters per mini-batch, $q$")
-    ax.set_ylabel("Full-graph references")
+    ax.set_xlabel("$q$")
+    ax.set_ylabel("")
     style_axis(ax)
     ax.grid(axis="y", color="#DCE1E7", linewidth=0.55, linestyle=":")
     ax.legend(loc="lower right", frameon=False)
-    ax.set_title(f"Cumulative support availability after {horizon} epochs"
-                 f"  |  K={first['K']}", fontsize=8.1, pad=7)
-    fig.suptitle(TITLES[dataset], fontsize=10.0, y=0.98)
-    fig.text(0.5, 0.025, f"{len(first['seeds'])} reshufflings · fixed METIS partition",
-             ha="center", fontsize=6.5)
-    fig.subplots_adjust(left=0.13, right=0.98, bottom=0.22, top=0.80)
+    ax.set_title(TITLES[dataset], fontsize=10.0, pad=6)
+    fig.subplots_adjust(left=0.10, right=0.98, bottom=0.18, top=0.90)
     return fig
 
 
