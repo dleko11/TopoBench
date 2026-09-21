@@ -69,11 +69,11 @@ def load_adjacency(path, *, expected_nodes, expected_edges):
 
 
 def validate_labels(labels, *, nodes, K):
-    """Require one integer assignment per node and K nonempty clusters."""
+    """Require one valid cluster ID per node, allowing empty cluster slots."""
     labels = np.asarray(labels)
     if (labels.shape != (nodes,) or labels.dtype.kind not in "iu"
-            or not np.array_equal(np.unique(labels), np.arange(K))):
-        raise ValueError("partition must assign every node to one of K nonempty clusters")
+            or np.any(labels < 0) or np.any(labels >= K)):
+        raise ValueError("partition must assign every node an integer cluster ID in [0, K)")
     return labels.astype(np.int32, copy=False)
 
 
@@ -218,6 +218,10 @@ def main(argv=None):
         print("Building one featureless METIS partition", flush=True)
         labels = make_partition(adjacency, K)
     labels = validate_labels(labels, nodes=adjacency.shape[0], K=K)
+    nonempty_clusters = len(np.unique(labels))
+    print(json.dumps({"stage": "partition_checked", "K": K,
+                      "nonempty_clusters": nonempty_clusters,
+                      "empty_clusters": K - nonempty_clusters}), flush=True)
     manifest = {
         "schema": 1, "dataset": "synthetic_smoke" if args.smoke else "reddit",
         "nodes": adjacency.shape[0], "undirected_edges": adjacency.nnz // 2,
@@ -237,6 +241,8 @@ def main(argv=None):
         write_json(output / "provenance.json", {
             "git_revision": revision.stdout.strip(),
             "partition_source": "provided_labels" if args.partition_labels else "new_metis" if not args.smoke else "synthetic",
+            "nonempty_clusters": nonempty_clusters,
+            "empty_clusters": K - nonempty_clusters,
         })
     sweep = {q: {"K": K, "q": q, "epochs": epochs, "seeds": seeds, "families": {}}
              for q in q_values}

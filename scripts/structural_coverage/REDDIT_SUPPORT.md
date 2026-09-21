@@ -8,7 +8,11 @@ over ten independent reshuffling seeds. No model is trained.
 
 ## Fixed settings and scope
 
-- One fixed METIS partition, K=10,000. Every partition cluster participates.
+- One fixed METIS partition with K=10,000 scheduling slots. METIS may leave
+  some slots empty; all nonempty clusters participate without renumbering.
+  Empty slots remain in the shuffle so the q grid and theoretical probabilities
+  still use K=10,000. Actual nonempty and empty counts are logged and saved in
+  `provenance.json`.
 - q = 1, 2, 4, 8, 10, 20, 40, 100, 200, 500, 1,000, 2,000, 5,000, 10,000.
   Each q divides K. A seed uses the same epoch permutations across q values.
 - One centre-indexed closed one-hop hyperedge per node, including identical
@@ -108,9 +112,9 @@ according to the server allocation, not the synthetic test duration.
 
 Optionally supply `--partition-labels /absolute/path/labels.npy` if an exact
 existing partition is available. It must be a one-dimensional integer array in
-original node-ID order, with every label 0,...,9999 present. Otherwise a new
-featureless METIS partition is created, saved, and reused. It is not claimed to
-be the partition of an earlier training run.
+original node-ID order, with every label in 0,...,9999; unused labels are allowed.
+Otherwise a new featureless METIS partition is created, saved, and reused.
+It is not claimed to be the partition of an earlier training run.
 
 For an interrupted run, use the identical command plus `--resume`. Graph and
 partition hashes, configuration, and numerical-library versions must match.
@@ -127,7 +131,8 @@ Do not launch two processes into the same output directory.
 - `q_recovery_source_data.csv`: full reference denominators, observable counts,
   theoretical expectations, empirical means and sample SDs, ten raw seed counts.
 - `q_recovery_manifest.json`, `run_manifest.json`, `provenance.json`: configuration,
-  graph and partition hashes, original source revision, and traversal convention.
+  graph and partition hashes, original source revision, traversal convention,
+  and nonempty/empty cluster counts for new runs.
 - `partition_labels.npy`: the common fixed partition, with no feature vectors.
 - `*_signatures.npz`: restartable support-signature multiplicities.
 - `*_q*.json`: per-epoch integer counts and summaries for each completed q.

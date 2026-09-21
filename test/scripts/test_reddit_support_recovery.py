@@ -2,10 +2,13 @@
 
 import importlib
 import importlib.util
+import json
 import networkx as nx
 import numpy as np
 import pytest
 from scipy import sparse
+
+from scripts.structural_coverage.recovery_core import generate_epoch_schedules
 
 MODULE = "scripts.structural_coverage.run_reddit_support_recovery"
 
@@ -96,10 +99,35 @@ def test_featureless_metis_covers_all_nodes():
     assert set(labels) == {0, 1}
 
 
-@pytest.mark.parametrize("labels", [[0, 0, 0], [0, 1, 2], [-1, 0, 1], [0.5, 1, 0]])
+@pytest.mark.parametrize("labels", [[0, 1], [[0, 1, 0]], [0, 1, 2], [-1, 0, 1], [0.5, 1, 0]])
 def test_reject_invalid_partition(labels):
     with pytest.raises(ValueError):
         runner().validate_labels(np.array(labels), nodes=3, K=2)
+
+
+@pytest.mark.parametrize("labels,K", [([0, 0, 0], 2), ([0, 2, 2], 4)])
+def test_empty_cluster_ids_are_preserved(labels, K):
+    actual = runner().validate_labels(np.array(labels), nodes=3, K=K)
+    np.testing.assert_array_equal(actual, labels)
+    assert actual.dtype == np.int32
+
+
+def test_empty_clusters_preserve_recovery_with_nominal_K():
+    api = runner()
+    labels = api.validate_labels(np.array([0, 0, 2]), nodes=3, K=4)
+    groups, histogram = api.prepare_signatures(nx.complete_graph(3), labels, "simplicial")
+    for q in [1, 2, 4]:
+        result = api.measure(groups, histogram, K=4, q=q, epochs=5, seeds=[0, 1])
+        probability = {1: 0.0, 2: 1 / 3, 4: 1.0}[q]
+        assert result["expected_coverage"] == pytest.approx(
+            [1 - (1 - probability) ** epoch for epoch in range(6)]
+        )
+        for seed in [0, 1]:
+            seen, counts = False, [0]
+            for batches in generate_epoch_schedules(4, q, 5, seed):
+                seen = seen or any({0, 2}.issubset(batch) for batch in batches)
+                counts.append(int(seen))
+            assert result["counts_by_seed"][seed] == counts
 
 
 def test_checkpoint_rejects_other_graph_or_partition(tmp_path):
@@ -111,13 +139,28 @@ def test_checkpoint_rejects_other_graph_or_partition(tmp_path):
         api.check_manifest(tmp_path, dict(manifest, partition_sha256="c"), resume=True)
 
 
-def test_cli_smoke_and_resume(tmp_path):
+@pytest.mark.parametrize("labels", [None, [0, 0, 2, 2, 0, 2, 0, 2]])
+def test_cli_smoke_and_resume(tmp_path, labels):
     api = runner()
     output = tmp_path / "smoke"
     args = ["--smoke", "--output-dir", str(output)]
-    api.main(args)
+    initial_args = list(args)
+    if labels is not None:
+        supplied_labels = tmp_path / "labels.npy"
+        np.save(supplied_labels, labels, allow_pickle=False)
+        initial_args += ["--partition-labels", str(supplied_labels)]
+    api.main(initial_args)
     assert (output / "q_recovery.pdf").is_file()
     assert (output / "q_recovery_source_data.csv").is_file()
+    manifest = json.loads((output / "run_manifest.json").read_text())
+    assert manifest["K"] == 4
+    assert manifest["q_values"] == [1, 2, 4]
+    provenance = json.loads((output / "provenance.json").read_text())
+    expected_nonempty = 4 if labels is None else 2
+    assert provenance["nonempty_clusters"] == expected_nonempty
+    assert provenance["empty_clusters"] == 4 - expected_nonempty
+    if labels is not None:
+        np.testing.assert_array_equal(np.load(output / "partition_labels.npy"), labels)
     before = (output / "q_recovery_source_data.csv").read_bytes()
     api.main(args + ["--resume"])
     assert (output / "q_recovery_source_data.csv").read_bytes() == before
