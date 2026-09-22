@@ -4,6 +4,7 @@
 CUDA OOM markers indicate failed configurations, never measured memory values.
 The figure uses peak reserved memory by default; allocated peaks are exported
 in the same source-data CSV and can be plotted with --metric allocated.
+Use --depth-width and --width-depth to select slices of larger-model probes.
 """
 
 from __future__ import annotations
@@ -73,8 +74,25 @@ def load_results(input_dir):
     return frame
 
 
-def plot_results(frame, output_dir, metric="reserved"):
+def plot_results(
+    frame, output_dir, metric="reserved", *, depth_width=128, width_depth=4
+):
     """Compare width and depth at fixed graph size with separate OOM marks."""
+    if depth_width <= 0 or width_depth <= 0:
+        raise ValueError("Slice width and depth must be positive.")
+    slices = [
+        (axis, fixed_axis, value)
+        for axis, fixed_axis, value in (
+            ("depth", "width", depth_width),
+            ("width", "depth", width_depth),
+        )
+        if (frame[fixed_axis] == value).any()
+    ]
+    if not slices:
+        raise ValueError(
+            "No measurements in the requested slices. Choose --depth-width "
+            "or --width-depth present in the results."
+        )
     mpl.rcParams.update(
         {
             "font.family": "DejaVu Sans",
@@ -88,20 +106,21 @@ def plot_results(frame, output_dir, metric="reserved"):
     total = float(frame.gpu_total_gib.iloc[0])
     metric_key = f"peak_{metric}_gib"
     fig, axes = plt.subplots(
-        2,
+        len(slices),
         len(models),
-        figsize=(3.5 * len(models), 5.3),
+        figsize=(3.5 * len(models), 5.3 if len(slices) == 2 else 3.3),
         squeeze=False,
         sharey=True,
     )
     for col, model in enumerate(models):
-        for row, (axis, fixed_axis, fixed_value) in enumerate(
-            (("depth", "width", 128), ("width", "depth", 4))
-        ):
+        for row, (axis, fixed_axis, fixed_value) in enumerate(slices):
             ax = axes[row, col]
             panel = frame.loc[
                 (frame.model == model) & (frame[fixed_axis] == fixed_value)
             ]
+            if panel.empty:
+                ax.set_visible(False)
+                continue
             ticks = sorted(panel[axis].unique())
             for mode, color in COLORS.items():
                 selected = panel.loc[panel["mode"] == mode]
@@ -148,9 +167,9 @@ def plot_results(frame, output_dir, metric="reserved"):
             ax.set_xscale("log", base=2)
             ax.set_xticks(ticks, [str(t) for t in ticks])
             ax.set_xlabel(
-                "Layers (hidden channels = 128)"
+                f"Layers (hidden channels = {fixed_value})"
                 if axis == "depth"
-                else "Hidden channels (layers = 4)"
+                else f"Hidden channels (layers = {fixed_value})"
             )
             ax.set_title(
                 f"{'abcd'[row * len(models) + col]}  {model.upper()}",
@@ -200,7 +219,12 @@ def plot_results(frame, output_dir, metric="reserved"):
         fontsize=8,
     )
     fig.subplots_adjust(
-        left=0.10, right=0.98, top=0.79, bottom=0.13, hspace=0.85, wspace=0.24
+        left=0.10,
+        right=0.98,
+        top=0.79 if len(slices) == 2 else 0.65,
+        bottom=0.13 if len(slices) == 2 else 0.22,
+        hspace=0.85,
+        wspace=0.24,
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     frame.to_csv(output_dir / "gpu_capacity_source.csv", index=False)
@@ -220,10 +244,26 @@ def main():
     parser.add_argument(
         "--metric", choices=["allocated", "reserved"], default="reserved"
     )
+    parser.add_argument(
+        "--depth-width",
+        type=int,
+        default=128,
+        help="Hold this many channels fixed in the depth panel (default: 128)",
+    )
+    parser.add_argument(
+        "--width-depth",
+        type=int,
+        default=4,
+        help="Hold this many layers fixed in the width panel (default: 4)",
+    )
     args = parser.parse_args()
     frame = load_results(args.input_dir)
     figure = plot_results(
-        frame, args.output_dir or args.input_dir / "analysis", args.metric
+        frame,
+        args.output_dir or args.input_dir / "analysis",
+        args.metric,
+        depth_width=args.depth_width,
+        width_depth=args.width_depth,
     )
     plt.close(figure)
     print(frame.groupby(["model", "mode", "status"]).size().to_string())

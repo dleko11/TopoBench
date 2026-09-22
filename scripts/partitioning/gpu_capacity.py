@@ -3,6 +3,8 @@
 
 Example: uv run --no-sync python -m scripts.partitioning.gpu_capacity \
     --gpus 0,1 --output-dir outputs/gpu_capacity_cora
+
+Larger-model probes: add --pairs 4:1024 4:2048 and a new output directory.
 """
 
 from __future__ import annotations
@@ -24,9 +26,28 @@ REPO = Path(__file__).resolve().parents[2]
 LAUNCHER = REPO / "scripts/partitioning/final_partitioning.sh"
 
 
-def build_grid(depths, widths, seeds, models):
-    """Deduplicate the common (depth=4, width=128) configuration."""
-    capacities = sorted({(d, 128) for d in depths} | {(4, w) for w in widths})
+def parse_capacity_pair(value):
+    """Parse one positive LAYERS:CHANNELS pair for argparse."""
+    try:
+        depth, width = map(int, value.split(":"))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "Expected LAYERS:CHANNELS, for example 4:1024."
+        ) from error
+    if depth <= 0 or width <= 0:
+        raise argparse.ArgumentTypeError(
+            "Layers and channels must be positive."
+        )
+    return depth, width
+
+
+def build_grid(depths, widths, seeds, models, *, pairs=None):
+    """Deduplicate explicit pairs or the original depth and width sweeps."""
+    capacities = sorted(
+        set(pairs)
+        if pairs is not None
+        else {(d, 128) for d in depths} | {(4, w) for w in widths}
+    )
     return [
         {
             "id": f"{model}_{mode}_l{depth}_h{width}_seed{seed}",
@@ -189,10 +210,23 @@ def main():
     )
     parser.add_argument("--project-prefix", default="gpu_capacity")
     parser.add_argument(
-        "--depths", nargs="+", type=int, default=[1, 2, 4, 8, 16]
+        "--depths",
+        nargs="+",
+        type=int,
+        help="Depth sweep at 128 channels (default: 1 2 4 8 16)",
     )
     parser.add_argument(
-        "--widths", nargs="+", type=int, default=[32, 64, 128, 256, 512]
+        "--widths",
+        nargs="+",
+        type=int,
+        help="Width sweep at 4 layers (default: 32 64 128 256 512)",
+    )
+    parser.add_argument(
+        "--pairs",
+        nargs="+",
+        type=parse_capacity_pair,
+        metavar="LAYERS:CHANNELS",
+        help="Run exactly these pairs instead of --depths/--widths",
     )
     parser.add_argument("--seeds", nargs="+", type=int, default=[0])
     parser.add_argument(
@@ -210,17 +244,24 @@ def main():
     gpus = args.gpus.split(",")
     if len(set(gpus)) != len(gpus) or not all(g.isdigit() for g in gpus):
         parser.error("--gpus requires distinct nonnegative indices")
-    if any(v <= 0 for v in args.depths + args.widths) or any(
-        s < 0 for s in args.seeds
+    if args.pairs is not None and (
+        args.depths is not None or args.widths is not None
     ):
+        parser.error("--pairs cannot be combined with --depths or --widths")
+    depths = args.depths if args.depths is not None else [1, 2, 4, 8, 16]
+    widths = (
+        args.widths if args.widths is not None else [32, 64, 128, 256, 512]
+    )
+    if any(v <= 0 for v in depths + widths) or any(s < 0 for s in args.seeds):
         parser.error(
             "Depths and widths must be positive; seeds must be nonnegative"
         )
     jobs = build_grid(
-        args.depths,
-        args.widths,
+        depths,
+        widths,
         sorted(set(args.seeds)),
         list(dict.fromkeys(args.models)),
+        pairs=args.pairs,
     )
     output_dir = args.output_dir.resolve()
     print(

@@ -34,6 +34,76 @@ def test_grid_has_36_unique_configurations():
     assert len([j for j in jobs if j["depth"] == 4 and j["width"] == 128]) == 4
 
 
+def test_explicit_pairs_do_not_add_reference_runs():
+    jobs = build_grid(
+        [1, 2, 4, 8, 16],
+        [32, 64, 128, 256, 512],
+        [0],
+        ["cwn", "sccnn"],
+        pairs=[(4, 1024), (4, 2048), (4, 1024)],
+    )
+    assert len(jobs) == len({job["id"] for job in jobs}) == 8
+    assert {(job["depth"], job["width"]) for job in jobs} == {
+        (4, 1024),
+        (4, 2048),
+    }
+
+
+@pytest.mark.parametrize(
+    "grid_args,expected_runs",
+    [
+        ([], 36),
+        (["--pairs", "4:1024", "4:2048", "4:1024"], 8),
+        (["--pairs", "8:1024", "16:512"], 8),
+    ],
+)
+def test_dry_run_plans_pairs_without_creating_files(
+    tmp_path, monkeypatch, capsys, grid_args, expected_runs
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gpu_capacity",
+            "--dry-run",
+            "--output-dir",
+            str(tmp_path),
+            *grid_args,
+        ],
+    )
+    gpu_capacity.main()
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0].startswith(f"{expected_runs} configurations")
+    assert len(lines) == expected_runs + 1
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "grid_args",
+    [
+        ["--pairs", "4"],
+        ["--pairs", "4:1024:2"],
+        ["--pairs", "four:1024"],
+        ["--pairs", "0:1024"],
+        ["--pairs", "4:-1"],
+        ["--pairs", "4:1024", "--depths", "4"],
+        ["--pairs", "4:1024", "--widths", "1024"],
+    ],
+)
+def test_invalid_pairs_fail_before_creating_files(
+    tmp_path, monkeypatch, grid_args
+):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["gpu_capacity", "--output-dir", str(tmp_path), *grid_args],
+    )
+    with pytest.raises(SystemExit) as error:
+        gpu_capacity.main()
+    assert error.value.code == 2
+    assert not list(tmp_path.iterdir())
+
+
 def test_hardware_check_uses_cuda_capacity_for_resume(monkeypatch):
     outputs = iter(
         [
@@ -236,6 +306,53 @@ def test_plot_keeps_oom_out_of_measured_curve(tmp_path):
     plt.close(fig)
 
 
+@pytest.mark.parametrize(
+    "pairs,options,labels",
+    [
+        (
+            [(2, 1024), (4, 1024), (8, 1024), (8, 2048)],
+            {"depth_width": 1024, "width_depth": 8},
+            ["Layers (hidden channels = 1024)"] * 2
+            + ["Hidden channels (layers = 8)"] * 2,
+        ),
+        (
+            [(4, 1024), (4, 2048)],
+            {},
+            ["Hidden channels (layers = 4)"] * 2,
+        ),
+    ],
+)
+def test_plot_selects_custom_slices(tmp_path, pairs, options, labels):
+    jobs = build_grid([], [], [0], ["cwn", "sccnn"], pairs=pairs)
+    rows = [
+        {
+            **job,
+            "gpu_name": "test GPU",
+            "gpu_total_gib": 80,
+            "status": "cuda_oom"
+            if job["mode"] == "full" and job["width"] == 2048
+            else "success",
+            "peak_reserved_gib": 20,
+            "peak_allocated_gib": 15,
+        }
+        for job in jobs
+    ]
+    fig = plot_results(pd.DataFrame(rows), tmp_path, **options)
+    assert [ax.get_xlabel() for ax in fig.axes] == labels
+    if options:
+        assert list(fig.axes[0].get_xticks()) == [2, 4, 8]
+    assert list(fig.axes[-1].get_xticks()) == [1024, 2048]
+    assert len(pd.read_csv(tmp_path / "gpu_capacity_source.csv")) == len(jobs)
+    plt.close(fig)
+
+
+def test_plot_rejects_absent_slices(tmp_path):
+    frame = pd.DataFrame({"depth": [8], "width": [1024]})
+    with pytest.raises(ValueError, match="No measurements"):
+        plot_results(frame, tmp_path)
+    assert not list(tmp_path.iterdir())
+
+
 def test_analysis_refuses_missing_runs(tmp_path):
     (tmp_path / "plan.json").write_text(
         json.dumps({"jobs": [{"id": "missing"}]})
@@ -275,17 +392,21 @@ def test_launcher_propagates_training_failure(tmp_path):
     assert "exit code: 17" in result.stdout
 
 
+@pytest.mark.parametrize(
+    "grid_args",
+    [
+        ["--depths", "4", "--widths", "128"],
+        ["--pairs", "4:1024"],
+    ],
+)
 def test_scheduler_uses_both_gpus_and_resumes_terminal_results(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, grid_args
 ):
     argv = [
         "gpu_capacity",
         "--gpus",
         "0,1",
-        "--depths",
-        "4",
-        "--widths",
-        "128",
+        *grid_args,
         "--output-dir",
         str(tmp_path),
     ]
