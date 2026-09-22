@@ -1,0 +1,13 @@
+defaults:
+  - model_checkpoint
+  - _self_
+
+# Keep the callback available to run.py without saving checkpoints.
+model_checkpoint:
+  monitor: null
+  save_top_k: 0
+  save_last: false
+
+gpu_memory:
+  _target_: topobench.callbacks.gpu_memory.GPUMemoryBenchmarkCallback
+  result_path: ???

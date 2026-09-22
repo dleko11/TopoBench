@@ -27,6 +27,10 @@ ENSEMBLE_RUNS="${ENSEMBLE_RUNS:-10}"
 TEST_INFERENCE_PROTOCOLS="${TEST_INFERENCE_PROTOCOLS:-[batched,ensemble]}"
 TRAIN="${TRAIN:-true}"
 TEST="${TEST:-true}"
+HIDDEN_CHANNELS_OVERRIDE="${HIDDEN_CHANNELS_OVERRIDE:-}"
+N_LAYERS_OVERRIDE="${N_LAYERS_OVERRIDE:-}"
+GPU_MEMORY_BENCHMARK="${GPU_MEMORY_BENCHMARK:-false}"
+GPU_MEMORY_RESULT_PATH="${GPU_MEMORY_RESULT_PATH:-}"
 
 DATASET_FILTER="${DATASET_FILTER:-}"
 MODEL_FILTER="${MODEL_FILTER:-}"
@@ -58,6 +62,23 @@ source "$SCRIPT_DIR/common.sh"
 PARTITION_GRID=()
 
 validate_mode_options() {
+    local value
+    for value in "$HIDDEN_CHANNELS_OVERRIDE" "$N_LAYERS_OVERRIDE"; do
+        if [[ -n "$value" && ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+            echo "ERROR: width and depth overrides must be positive integers." >&2
+            exit 1
+        fi
+    done
+    if [[ "$GPU_MEMORY_BENCHMARK" != "true" && "$GPU_MEMORY_BENCHMARK" != "false" ]]; then
+        echo "ERROR: GPU_MEMORY_BENCHMARK must be true or false." >&2
+        exit 1
+    fi
+    if [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+        if [[ "$LOGGER" != "wandb" || "$TRAINER" != "gpu" || -z "$GPU_MEMORY_RESULT_PATH" ]]; then
+            echo "ERROR: GPU memory benchmark requires W&B, GPU training, and GPU_MEMORY_RESULT_PATH." >&2
+            exit 1
+        fi
+    fi
     if [[ "$FULL_GRAPH_BASELINE" != "true" && "$FULL_GRAPH_BASELINE" != "false" ]]; then
         echo "ERROR: FULL_GRAPH_BASELINE must be true or false." >&2
         exit 1
@@ -268,6 +289,10 @@ run_final_partitioning_suite() {
         echo "ERROR: no runs selected. Check DATASET_FILTER and MODEL_FILTER." >&2
         exit 1
     fi
+    if [[ "$GPU_MEMORY_BENCHMARK" == "true" && "$total_runs" -ne 1 ]]; then
+        echo "ERROR: GPU memory benchmark requires exactly one run per invocation." >&2
+        exit 1
+    fi
 
     if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
         echo "Experiment mode: full graph baseline"
@@ -312,6 +337,12 @@ run_final_partitioning_suite() {
             continue
         fi
 
+        if [[ -n "$N_LAYERS_OVERRIDE" && "$model_alias" != "cwn" && "$model_alias" != "sccnn" ]]; then
+            echo "ERROR: depth override currently supports only CWN and SCCNN." >&2
+            exit 1
+        fi
+        out_channels="${HIDDEN_CHANNELS_OVERRIDE:-$out_channels}"
+
         for data_seed in "${DATA_SEEDS[@]}"; do
             selected_dataset_config="$dataset_config"
             if [[ "$FULL_GRAPH_BASELINE" == "true" ]]; then
@@ -323,6 +354,12 @@ run_final_partitioning_suite() {
                 run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}"
             else
                 run_name="${run_name_prefix}_${dataset_alias}_${model_alias}_seed${data_seed}_q${q}_clusters${num_parts}"
+            fi
+            if [[ -n "$HIDDEN_CHANNELS_OVERRIDE" ]]; then
+                run_name+="_h${HIDDEN_CHANNELS_OVERRIDE}"
+            fi
+            if [[ -n "$N_LAYERS_OVERRIDE" ]]; then
+                run_name+="_l${N_LAYERS_OVERRIDE}"
             fi
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
@@ -353,6 +390,7 @@ run_final_partitioning_suite() {
             else
                 project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_partitioning${WANDB_PROJECT_SUFFIX}"
             fi
+            project_name="${WANDB_PROJECT_NAME:-$project_name}"
 
             cmd=(
                 "python" "-m" "topobench"
@@ -397,7 +435,6 @@ run_final_partitioning_suite() {
                 "trainer.max_epochs=${MAX_EPOCHS}"
                 "trainer.min_epochs=${MIN_EPOCHS}"
                 "trainer.check_val_every_n_epoch=${CHECK_VAL_EVERY_N_EPOCH}"
-                "callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}"
                 "test_inference.protocols=${TEST_INFERENCE_PROTOCOLS}"
                 "test_inference.ensemble_runs=${ENSEMBLE_RUNS}"
                 "test_inference.ensemble_seed=${data_seed}"
@@ -408,10 +445,31 @@ run_final_partitioning_suite() {
                 "extras.enforce_tags=false"
             )
 
+            if [[ -n "$N_LAYERS_OVERRIDE" ]]; then
+                cmd+=("model.backbone.n_layers=${N_LAYERS_OVERRIDE}")
+            fi
+            if [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+                cmd+=(
+                    "callbacks=gpu_memory_benchmark"
+                    "callbacks.gpu_memory.result_path=${GPU_MEMORY_RESULT_PATH}"
+                    "+trainer.limit_val_batches=0"
+                    "+trainer.precision=32-true"
+                    "+trainer.enable_model_summary=false"
+                    "train=true"
+                    "test=false"
+                )
+            else
+                cmd+=("callbacks.early_stopping.patience=${EARLY_STOPPING_PATIENCE}")
+            fi
+
             append_dropout_arg "$model_alias" "$dropout"
 
             if [[ "$TRAINER" == "gpu" ]]; then
-                cmd+=("trainer.devices=[${current_gpu}]")
+                if [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+                    cmd+=("trainer.devices=[0]")
+                else
+                    cmd+=("trainer.devices=[${current_gpu}]")
+                fi
             fi
 
             if [[ "$LOGGER" == "wandb" ]]; then
@@ -429,11 +487,17 @@ run_final_partitioning_suite() {
                 cmd+=("transforms.graph2simplicial_lifting.complex_dim=2")
             fi
 
+            if [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+                cmd=("env" "CUDA_VISIBLE_DEVICES=${current_gpu}" "CUDA_DEVICE_ORDER=PCI_BUS_ID" "${cmd[@]}")
+            fi
             cmd_string=$(quote_cmd "${cmd[@]}")
 
             if [[ "$DRY_RUN" == "true" ]]; then
                 printf '[DRY_RUN] %s\n' "$cmd_string"
                 slot_pids[$assigned_slot]=0
+            elif [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+                run_and_log "$cmd_string" "$log_group" "$run_name" "$LOG_DIR"
+                return $?
             else
                 run_and_log "$cmd_string" "$log_group" "$run_name" "$LOG_DIR" &
                 slot_pids[$assigned_slot]=$!

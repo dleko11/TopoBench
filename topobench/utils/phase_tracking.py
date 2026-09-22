@@ -51,6 +51,7 @@ PHASE_IDS: dict[str, int] = {
     "train_epoch": 110,
     "validation_epoch": 120,
     "test_epoch": 130,
+    "gpu_memory_benchmark": 140,
     "checkpoint_load": 200,
     "val_best_rerun": 210,
     "test_best_rerun": 220,
@@ -161,6 +162,7 @@ class PhaseResourceTracker:
         self._owner_pid = os.getpid()
         self._wandb_runs = self._collect_wandb_runs(loggers)
         self._active_starts: dict[str, float] = {}
+        self._active_cuda_peaks: dict[str, dict[str, float]] = {}
         self._summary_written = False
         self._cpu_memory_sample_interval_sec = float(
             cpu_memory_sample_interval_sec
@@ -229,7 +231,9 @@ class PhaseResourceTracker:
         """
         if not self.enabled:
             return
+        self._sample_cuda_peaks()
         self._reset_cuda_peak_stats()
+        self._active_cuda_peaks[phase] = {}
         self._active_starts[phase] = time.perf_counter()
         self._start_cpu_peak_tracking(phase)
         self._log_event(
@@ -272,6 +276,8 @@ class PhaseResourceTracker:
         )
         event_extra = dict(extra or {})
         event_extra.update(self._finish_cpu_peak_tracking(phase))
+        event_extra.update(self.cuda_phase_peaks(phase))
+        self._active_cuda_peaks.pop(phase, None)
         self._log_event(
             phase,
             event="end",
@@ -438,13 +444,51 @@ class PhaseResourceTracker:
                 payload["tracking/resource/cuda_reserved_mb"] = (
                     torch.cuda.memory_reserved(device) / scale
                 )
-                payload["tracking/resource/cuda_peak_allocated_mb"] = (
-                    torch.cuda.max_memory_allocated(device) / scale
-                )
-                payload["tracking/resource/cuda_peak_reserved_mb"] = (
-                    torch.cuda.max_memory_reserved(device) / scale
-                )
+        payload.update(self._cuda_peak_snapshot())
         return payload
+
+    def _cuda_peak_snapshot(self) -> dict[str, float]:
+        """Read CUDA allocator high-water marks in MiB.
+
+        Returns
+        -------
+        dict[str, float]
+            Peak allocated and reserved memory in MiB.
+        """
+        if not torch.cuda.is_available():
+            return {}
+        device = torch.cuda.current_device()
+        return {
+            "tracking/resource/cuda_peak_allocated_mb": (
+                torch.cuda.max_memory_allocated(device) / 1024**2
+            ),
+            "tracking/resource/cuda_peak_reserved_mb": (
+                torch.cuda.max_memory_reserved(device) / 1024**2
+            ),
+        }
+
+    def _sample_cuda_peaks(self) -> None:
+        """Preserve all active parents' peaks before a child resets CUDA."""
+        snapshot = self._cuda_peak_snapshot()
+        for peaks in self._active_cuda_peaks.values():
+            for metric, value in snapshot.items():
+                peaks[metric] = max(peaks.get(metric, value), value)
+
+    def cuda_phase_peaks(self, phase: str) -> dict[str, float]:
+        """Return a phase's CUDA peaks, including completed nested phases.
+
+        Parameters
+        ----------
+        phase : str
+            Active phase name.
+
+        Returns
+        -------
+        dict[str, float]
+            Peak allocated and reserved memory in MiB.
+        """
+        self._sample_cuda_peaks()
+        return dict(self._active_cuda_peaks.get(phase, {}))
 
     def _cpu_memory_snapshot(self) -> dict[str, float]:
         """Collect current driver-process and process-tree RSS values.
