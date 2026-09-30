@@ -333,7 +333,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             checkpoint_model=model,
             cfg=cfg,
             datamodule=datamodule,
-            device=model.device,
+            device=trainer.strategy.root_device,
             callbacks=callbacks,
             logger=logger,
         )
@@ -569,18 +569,23 @@ def _average_ensemble_logits_by_global_nid(
     count_shape = (counts.shape[0],) + (1,) * (logits.dim() - 1)
     avg_logits = logit_sums / counts.view(count_shape).to(logits.dtype)
 
-    avg_labels = []
-    for idx, nid in enumerate(unique_nids):
-        node_labels = labels[inverse == idx]
-        first = node_labels[0]
-        if not torch.equal(node_labels, first.expand_as(node_labels)):
-            raise ValueError(
-                "Inconsistent labels encountered for repeated ensemble "
-                f"predictions at global_nid={int(nid)}."
-            )
-        avg_labels.append(first)
+    first_indices = torch.full(
+        (unique_nids.numel(),), inverse.numel(), dtype=torch.long
+    )
+    first_indices.scatter_reduce_(
+        0, inverse, torch.arange(inverse.numel()), reduce="amin"
+    )
+    avg_labels = labels[first_indices]
+    repeated_labels = avg_labels[inverse]
+    if not torch.equal(labels, repeated_labels):
+        mismatched = (labels != repeated_labels).reshape(labels.shape[0], -1)
+        bad_nid = global_nids[mismatched.any(dim=1)].min().item()
+        raise ValueError(
+            "Inconsistent labels encountered for repeated ensemble "
+            f"predictions at global_nid={bad_nid}."
+        )
 
-    return avg_logits, torch.stack(avg_labels, dim=0), unique_nids
+    return avg_logits, avg_labels, unique_nids
 
 
 def _dataset_loss_module(checkpoint_model: LightningModule) -> Any:
@@ -692,7 +697,11 @@ def _run_ensemble_test_inference(
     label_chunks: list[torch.Tensor] = []
     nid_chunks: list[torch.Tensor] = []
     was_training = checkpoint_model.training
+    checkpoint_model.to(device)
     checkpoint_model.eval()
+    log.info(
+        f"Starting ensemble inference: {ensemble_runs} passes on {device}."
+    )
 
     try:
         with torch.inference_mode():
@@ -730,21 +739,28 @@ def _run_ensemble_test_inference(
                     logit_chunks.append(logits[mask].detach().cpu())
                     label_chunks.append(labels[mask].detach().cpu())
                     nid_chunks.append(batch.global_nid[mask].detach().cpu())
+                log.info(
+                    f"Completed ensemble pass {run_idx + 1}/{ensemble_runs}."
+                )
     finally:
         if was_training:
             checkpoint_model.train()
 
+    log.info("Aggregating ensemble predictions and checking coverage/labels.")
     avg_logits, avg_labels, _ = _average_ensemble_logits_by_global_nid(
         logit_chunks=logit_chunks,
         label_chunks=label_chunks,
         nid_chunks=nid_chunks,
         expected_runs=ensemble_runs,
     )
-    return _compute_ensemble_metrics(
+    log.info("Computing ensemble test metrics.")
+    metrics = _compute_ensemble_metrics(
         checkpoint_model=checkpoint_model,
         logits=avg_logits,
         labels=avg_labels,
     )
+    log.info("Completed ensemble test inference.")
+    return metrics
 
 
 def rerun_best_model_checkpoint(
