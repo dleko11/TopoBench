@@ -29,6 +29,7 @@ TRAIN="${TRAIN:-true}"
 TEST="${TEST:-true}"
 HIDDEN_CHANNELS_OVERRIDE="${HIDDEN_CHANNELS_OVERRIDE:-}"
 N_LAYERS_OVERRIDE="${N_LAYERS_OVERRIDE:-}"
+TRAIN_PROP_OVERRIDE="${TRAIN_PROP_OVERRIDE:-}"
 GPU_MEMORY_BENCHMARK="${GPU_MEMORY_BENCHMARK:-false}"
 GPU_MEMORY_RESULT_PATH="${GPU_MEMORY_RESULT_PATH:-}"
 
@@ -69,6 +70,10 @@ validate_mode_options() {
             exit 1
         fi
     done
+    if [[ -n "$TRAIN_PROP_OVERRIDE" && ! "$TRAIN_PROP_OVERRIDE" =~ ^0\.[0-9]*[1-9][0-9]*$ ]]; then
+        echo "ERROR: TRAIN_PROP_OVERRIDE must be a decimal strictly between 0 and 1." >&2
+        exit 1
+    fi
     if [[ "$GPU_MEMORY_BENCHMARK" != "true" && "$GPU_MEMORY_BENCHMARK" != "false" ]]; then
         echo "ERROR: GPU_MEMORY_BENCHMARK must be true or false." >&2
         exit 1
@@ -337,8 +342,8 @@ run_final_partitioning_suite() {
             continue
         fi
 
-        if [[ -n "$N_LAYERS_OVERRIDE" && "$model_alias" != "cwn" && "$model_alias" != "sccnn" ]]; then
-            echo "ERROR: depth override currently supports only CWN and SCCNN." >&2
+        if [[ -n "$N_LAYERS_OVERRIDE" && "$model_alias" != "cwn" && "$model_alias" != "sccnn" && "$model_alias" != "cell_topotune" ]]; then
+            echo "ERROR: depth override supports CWN, SCCNN, and Cell TopoTune." >&2
             exit 1
         fi
         out_channels="${HIDDEN_CHANNELS_OVERRIDE:-$out_channels}"
@@ -446,9 +451,19 @@ run_final_partitioning_suite() {
             )
 
             if [[ -n "$N_LAYERS_OVERRIDE" ]]; then
-                cmd+=("model.backbone.n_layers=${N_LAYERS_OVERRIDE}")
+                if [[ "$model_alias" == "cell_topotune" ]]; then
+                    cmd+=("model.backbone.layers=${N_LAYERS_OVERRIDE}")
+                else
+                    cmd+=("model.backbone.n_layers=${N_LAYERS_OVERRIDE}")
+                fi
+            fi
+            if [[ -n "$TRAIN_PROP_OVERRIDE" ]]; then
+                cmd+=("dataset.split_params.train_prop=${TRAIN_PROP_OVERRIDE}")
             fi
             if [[ "$GPU_MEMORY_BENCHMARK" == "true" ]]; then
+                if [[ "$model_alias" == "cell_topotune" ]]; then
+                    cmd+=("model.backbone.GNN.num_layers=2")
+                fi
                 cmd+=(
                     "callbacks=gpu_memory_benchmark"
                     "callbacks.gpu_memory.result_path=${GPU_MEMORY_RESULT_PATH}"

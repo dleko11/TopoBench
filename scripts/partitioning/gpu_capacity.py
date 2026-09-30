@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Run the Cora Full CWN/SCCNN GPU memory sweep, one process per GPU.
+"""Run full-graph and partitioned GPU memory sweeps, one process per GPU.
 
 Example: uv run --no-sync python -m scripts.partitioning.gpu_capacity \
     --gpus 0,1 --output-dir outputs/gpu_capacity_cora
 
 Larger-model probes: add --pairs 4:1024 4:2048 and a new output directory.
+TopoTune depth counts outer blocks, with two GCN layers per neighborhood.
 """
 
 from __future__ import annotations
@@ -64,13 +65,16 @@ def build_grid(depths, widths, seeds, models, *, pairs=None):
     ]
 
 
-def run_environment(job, gpu, output_dir, project_prefix, attempt):
+def run_environment(
+    job, gpu, output_dir, project_prefix, attempt, *, dataset="cora_full"
+):
     """Use the existing launcher for models, lifting, splits, and logging."""
     return {
         "SELECTED_GPUS": str(gpu),
         "JOBS_PER_GPU_OVERRIDE": "1",
         "MAX_CONCURRENT_RUNS": "1",
-        "DATASET_FILTER": "cora_full",
+        "DATASET_FILTER": dataset,
+        "TRAIN_PROP_OVERRIDE": "0.7" if dataset == "coauthor_physics" else "",
         "MODEL_FILTER": job["model"],
         "DATA_SEEDS_OVERRIDE": str(job["seed"]),
         "HIDDEN_CHANNELS_OVERRIDE": str(job["width"]),
@@ -210,6 +214,12 @@ def main():
     )
     parser.add_argument("--project-prefix", default="gpu_capacity")
     parser.add_argument(
+        "--dataset",
+        choices=["cora_full", "coauthor_physics"],
+        default="cora_full",
+        help="Physics uses a matched 70%% training split in both modes",
+    )
+    parser.add_argument(
         "--depths",
         nargs="+",
         type=int,
@@ -232,7 +242,7 @@ def main():
     parser.add_argument(
         "--models",
         nargs="+",
-        choices=["cwn", "sccnn"],
+        choices=["cwn", "sccnn", "cell_topotune"],
         default=["cwn", "sccnn"],
     )
     parser.add_argument(
@@ -276,6 +286,7 @@ def main():
                 output_dir,
                 args.project_prefix,
                 "dryrun",
+                dataset=args.dataset,
             )
             print(
                 shlex.join(
@@ -290,7 +301,7 @@ def main():
         return
 
     plan = {
-        "dataset": "cora_full",
+        "dataset": args.dataset,
         "epochs": 3,
         "K": 64,
         "q": 8,
@@ -299,6 +310,10 @@ def main():
         "project_name": os.environ.get("WANDB_PROJECT_NAME"),
         "jobs": jobs,
     }
+    if args.dataset == "coauthor_physics":
+        plan["train_prop"] = 0.7
+    if "cell_topotune" in args.models:
+        plan["topotune_gnn_layers"] = 2
     plan_path = output_dir / "plan.json"
     if plan_path.exists() and json.loads(plan_path.read_text()) != plan:
         parser.error(
@@ -340,7 +355,12 @@ def main():
                 return
             attempt = uuid4().hex[:8]
             env = run_environment(
-                job, gpu, output_dir, args.project_prefix, attempt
+                job,
+                gpu,
+                output_dir,
+                args.project_prefix,
+                attempt,
+                dataset=args.dataset,
             )
             result_path = output_dir / "runs" / f"{job['id']}.json"
             measurement_path = Path(env["GPU_MEMORY_RESULT_PATH"])

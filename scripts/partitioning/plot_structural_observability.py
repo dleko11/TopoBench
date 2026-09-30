@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import wandb
 from matplotlib.lines import Line2D
-from matplotlib.ticker import PercentFormatter
+from matplotlib.ticker import PercentFormatter, StrMethodFormatter
 
 from scripts.partitioning.structural_observability import (
     CURVE_FIELDS,
@@ -53,6 +54,33 @@ MARKERS = {
     "cell": "s",
     "simplicial": "^",
 }
+
+
+def _q_ticks(num_parts: int, max_ticks: int = 8) -> list[int]:
+    """Return sparse power-of-two q ticks including the full endpoint.
+
+    Parameters
+    ----------
+    num_parts : int
+        Total number of graph partitions.
+    max_ticks : int, optional
+        Maximum preferred number of labeled ticks.
+
+    Returns
+    -------
+    list[int]
+        Increasing q values with ``num_parts`` as the final value.
+    """
+    max_exponent = int(math.log2(num_parts))
+    exponent_step = max(1, math.ceil((max_exponent + 1) / (max_ticks - 1)))
+    ticks = [
+        2**exponent for exponent in range(0, max_exponent + 1, exponent_step)
+    ]
+    if ticks[-1] != num_parts:
+        if len(ticks) > 1 and num_parts / ticks[-1] < 3:
+            ticks.pop()
+        ticks.append(num_parts)
+    return ticks
 
 
 def download_histograms(
@@ -189,7 +217,6 @@ def plot_observability(
     threshold_map = {
         (str(row["dataset"]), str(row["family"])): row for row in thresholds
     }
-
     datasets = [
         dataset
         for dataset in DATASET_ORDER
@@ -202,7 +229,7 @@ def plot_observability(
         2,
         3,
         figsize=(7.2, 4.25),
-        sharex=True,
+        sharex=False,
         sharey=True,
     )
     axes = list(axes_array.flat)
@@ -220,13 +247,13 @@ def plot_observability(
         if len(num_parts_values) != 1:
             raise ValueError(f"Inconsistent K values for {dataset}.")
         num_parts = num_parts_values.pop()
-
         for family in available_families:
             family_rows = sorted(
                 curve_groups[(dataset, family)],
                 key=lambda row: int(row["q"]),
             )
-            x = [float(row["q_over_k_percent"]) for row in family_rows]
+            threshold = threshold_map[(dataset, family)]
+            x = [int(row["q"]) for row in family_rows]
             y = [float(row["observable_fraction"]) for row in family_rows]
             ax.plot(
                 x,
@@ -236,11 +263,10 @@ def plot_observability(
                 solid_capstyle="round",
                 zorder=2,
             )
-            threshold = threshold_map[(dataset, family)]
             q_95 = int(threshold["q_95"])
             threshold_row = family_rows[q_95 - 1]
             ax.scatter(
-                float(threshold_row["q_over_k_percent"]),
+                int(threshold_row["q"]),
                 float(threshold_row["observable_fraction"]),
                 color=COLORS[family],
                 marker=MARKERS[family],
@@ -260,11 +286,14 @@ def plot_observability(
         ax.axhline(0.95, color="#9CA3AF", linewidth=0.7, linestyle="--")
         ax.grid(axis="y", color="#E5E7EB", linewidth=0.55)
         ax.set_axisbelow(True)
-        ax.set_xscale("log")
-        ax.set_xlim(0.009, 110)
+        ax.set_xscale("log", base=2)
+        ax.set_xlim(0.85, num_parts * 1.08)
         ax.set_ylim(0, 1.025)
-        ax.set_yticks((0, 0.25, 0.5, 0.75, 0.95, 1.0))
+        ax.set_yticks((0, 0.25, 0.5, 0.75, 1.0))
         ax.yaxis.set_major_formatter(PercentFormatter(1.0))
+        ax.set_xticks(_q_ticks(num_parts))
+        ax.xaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        ax.set_xlabel(r"Sampled partitions, $q$")
         ax.tick_params(direction="out", length=3, width=0.7)
 
     for ax in axes[len(datasets) : -1]:
@@ -306,8 +335,6 @@ def plot_observability(
 
     for row in range(2):
         axes[row * 3].set_ylabel("Observable structures")
-    for ax in axes[3:5]:
-        ax.set_xlabel(r"Sampled partitions, $q/K$ (%)")
     fig.subplots_adjust(
         left=0.08,
         right=0.985,

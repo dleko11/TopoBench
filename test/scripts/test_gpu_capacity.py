@@ -55,6 +55,27 @@ def test_explicit_pairs_do_not_add_reference_runs():
         ([], 36),
         (["--pairs", "4:1024", "4:2048", "4:1024"], 8),
         (["--pairs", "8:1024", "16:512"], 8),
+        (
+            [
+                "--dataset",
+                "coauthor_physics",
+                "--models",
+                "cell_topotune",
+                "sccnn",
+                "--pairs",
+                "1:64",
+                "1:128",
+                "2:64",
+                "2:128",
+                "4:64",
+                "4:128",
+                "8:64",
+                "8:128",
+                "--seeds",
+                "0",
+            ],
+            32,
+        ),
     ],
 )
 def test_dry_run_plans_pairs_without_creating_files(
@@ -75,6 +96,11 @@ def test_dry_run_plans_pairs_without_creating_files(
     lines = capsys.readouterr().out.splitlines()
     assert lines[0].startswith(f"{expected_runs} configurations")
     assert len(lines) == expected_runs + 1
+    if "coauthor_physics" in grid_args:
+        assert all(
+            "DATASET_FILTER=coauthor_physics" in line for line in lines[1:]
+        )
+        assert all("TRAIN_PROP_OVERRIDE=0.7" in line for line in lines[1:])
     assert not list(tmp_path.iterdir())
 
 
@@ -124,9 +150,12 @@ def test_hardware_check_uses_cuda_capacity_for_resume(monkeypatch):
     assert calls[-1][1]["env"]["CUDA_VISIBLE_DEVICES"] == "0"
 
 
-@pytest.mark.parametrize("model", ["cwn", "sccnn"])
+@pytest.mark.parametrize("dataset", ["cora_full", "coauthor_physics"])
+@pytest.mark.parametrize("model", ["cwn", "sccnn", "cell_topotune"])
 @pytest.mark.parametrize("mode", ["full", "partitioned"])
-def test_launcher_composes_training_only_config(tmp_path, model, mode):
+def test_launcher_composes_training_only_config(
+    tmp_path, model, mode, dataset
+):
     job = {
         "id": "test",
         "model": model,
@@ -137,7 +166,9 @@ def test_launcher_composes_training_only_config(tmp_path, model, mode):
     }
     env = {
         **os.environ,
-        **run_environment(job, "0", tmp_path, "test_capacity", "test"),
+        **run_environment(
+            job, "0", tmp_path, "test_capacity", "test", dataset=dataset
+        ),
     }
     env["DRY_RUN"] = "true"
     env["WANDB_PROJECT_NAME"] = "test_capacity_combined"
@@ -161,13 +192,28 @@ def test_launcher_composes_training_only_config(tmp_path, model, mode):
         config_dir=str(REPO / "configs"), version_base="1.3"
     ):
         cfg = compose(config_name="run.yaml", overrides=overrides)
-    assert cfg.model.backbone.n_layers == 8
+    if model == "cell_topotune":
+        assert cfg.model.backbone.layers == 8
+        assert "n_layers" not in cfg.model.backbone
+        assert cfg.model.backbone.GNN.num_layers == 2
+        assert len(cfg.model.backbone.neighborhoods) == 4
+    else:
+        assert cfg.model.backbone.n_layers == 8
     assert cfg.logger.wandb.project == "test_capacity_combined"
     assert cfg.model.feature_encoder.out_channels == 256
     if model == "cwn":
         assert cfg.model.backbone.hid_channels == 256
-    else:
+    elif model == "sccnn":
         assert list(cfg.model.backbone.hidden_channels_all) == [256] * 3
+    else:
+        assert cfg.model.backbone.GNN.in_channels == 256
+        assert cfg.model.backbone.GNN.hidden_channels == 256
+        assert cfg.model.backbone.GNN.out_channels == 256
+    if dataset == "coauthor_physics":
+        assert cfg.dataset.loader.parameters.data_name == "Physics"
+        assert cfg.dataset.split_params.train_prop == 0.7
+    else:
+        assert cfg.dataset.loader.parameters.data_name == "CoraFull"
     assert cfg.trainer.max_epochs == cfg.trainer.min_epochs == 3
     assert cfg.trainer.limit_val_batches == 0
     assert cfg.trainer.precision == "32-true"
@@ -397,6 +443,15 @@ def test_launcher_propagates_training_failure(tmp_path):
     [
         ["--depths", "4", "--widths", "128"],
         ["--pairs", "4:1024"],
+        [
+            "--dataset",
+            "coauthor_physics",
+            "--models",
+            "cell_topotune",
+            "sccnn",
+            "--pairs",
+            "2:128",
+        ],
     ],
 )
 def test_scheduler_uses_both_gpus_and_resumes_terminal_results(
@@ -422,6 +477,11 @@ def test_scheduler_uses_both_gpus_and_resumes_terminal_results(
     calls = []
 
     def fake_run(command, *, env, **kwargs):
+        physics = "coauthor_physics" in grid_args
+        assert env["DATASET_FILTER"] == (
+            "coauthor_physics" if physics else "cora_full"
+        )
+        assert env["TRAIN_PROP_OVERRIDE"] == ("0.7" if physics else "")
         gpu = env["SELECTED_GPUS"]
         with lock:
             assert gpu not in active
@@ -450,10 +510,25 @@ def test_scheduler_uses_both_gpus_and_resumes_terminal_results(
     monkeypatch.setattr(gpu_capacity.subprocess, "run", fake_run)
     gpu_capacity.main()
     assert len(calls) == len(set(calls)) == 4
+    plan = json.loads((tmp_path / "plan.json").read_text())
+    if "coauthor_physics" in grid_args:
+        assert plan["dataset"] == "coauthor_physics"
+        assert plan["train_prop"] == 0.7
+        assert plan["topotune_gnn_layers"] == 2
     frame = load_results(tmp_path)
     assert frame.status.value_counts().to_dict() == {
         "success": 3,
         "cuda_oom": 1,
     }
     gpu_capacity.main()
+    assert len(calls) == 4
+    other_dataset = (
+        "cora_full"
+        if plan["dataset"] == "coauthor_physics"
+        else "coauthor_physics"
+    )
+    monkeypatch.setattr(sys, "argv", [*argv, "--dataset", other_dataset])
+    with pytest.raises(SystemExit) as error:
+        gpu_capacity.main()
+    assert error.value.code == 2
     assert len(calls) == 4

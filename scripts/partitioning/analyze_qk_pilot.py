@@ -330,7 +330,11 @@ def _annotate_heatmap(
             )
 
 
-def plot_resource_heatmaps(table: pd.DataFrame, output_dir: Path) -> None:
+def plot_resource_heatmaps(
+    table: pd.DataFrame,
+    output_dir: Path,
+    full_graph: pd.DataFrame | None = None,
+) -> None:
     """Plot aligned GPU and CPU resource heatmaps."""
     combinations = sorted(
         {
@@ -341,6 +345,15 @@ def plot_resource_heatmaps(table: pd.DataFrame, output_dir: Path) -> None:
     )
     gpu = _matrix(table, combinations, "cuda_peak_reserved_gib")
     cpu = _matrix(table, combinations, "tree_rss_peak_gib")
+    partition_column_count = len(combinations)
+    if full_graph is not None:
+        full_by_model = full_graph.set_index("model").reindex(MODEL_ORDER)
+        gpu = np.column_stack(
+            [gpu, full_by_model["cuda_peak_reserved_gib"].to_numpy()]
+        )
+        cpu = np.column_stack(
+            [cpu, full_by_model["tree_rss_peak_gib"].to_numpy()]
+        )
 
     gpu_cmap = LinearSegmentedColormap.from_list(
         "gpu_memory", ["#F7F9FC", "#A9C4DF", "#245A8D"]
@@ -408,11 +421,31 @@ def plot_resource_heatmaps(table: pd.DataFrame, output_dir: Path) -> None:
                 )
             offset += size
 
+        if full_graph is not None:
+            ax.axvline(
+                partition_column_count - 0.5,
+                color="white",
+                linewidth=4.0,
+            )
+            if index == 0:
+                ax.text(
+                    partition_column_count,
+                    1.015,
+                    "Full graph",
+                    transform=ax.get_xaxis_transform(),
+                    ha="center",
+                    va="bottom",
+                    fontsize=6.5,
+                    fontweight="bold",
+                )
+
     labels = [
         f"q={q}\n{100 * q / num_parts:g}%" for num_parts, q in combinations
     ]
-    axes[0].set_xticks(range(len(combinations)), [])
-    axes[1].set_xticks(range(len(combinations)), labels)
+    if full_graph is not None:
+        labels.append("100%")
+    axes[0].set_xticks(range(len(labels)), [])
+    axes[1].set_xticks(range(len(labels)), labels)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _save_figure(fig, output_dir / "cora_qk_resource_heatmaps")
@@ -781,7 +814,7 @@ def main() -> None:
     summary_path = args.output_dir / "model_peak_summary.csv"
     table.to_csv(table_path, index=False)
     summary.to_csv(summary_path, index=False)
-    plot_resource_heatmaps(table, args.output_dir)
+    plot_resource_heatmaps(table, args.output_dir, full_graph)
     plot_fraction_scaling(table, args.output_dir, full_graph)
     plot_k_sensitivity(
         table,
