@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
 from torch_geometric.data import Data, InMemoryDataset
 
 from topobench.data.preprocessor.preprocessor import PreProcessor
@@ -33,6 +34,72 @@ class SyntheticGraphDataset(InMemoryDataset):
 
 class TestOnDiskClusteringPipeline:
     """Test the entire on-disk Cluster-GCN partitioning and streaming datamodule."""
+
+    def test_fixed_splits_survive_partitioning_and_streaming(self, tmp_path):
+        """Preserve fixed node membership across seeds and cached partitions."""
+        num_nodes = 8
+        nodes = torch.arange(num_nodes)
+        edges = torch.stack([nodes, nodes.roll(-1)])
+        data = Data(
+            x=torch.arange(num_nodes * 3).reshape(num_nodes, 3).float(),
+            y=nodes % 2,
+            edge_index=torch.cat([edges, edges.flip(0)], dim=1),
+            num_nodes=num_nodes,
+        )
+        dataset = SyntheticGraphDataset(str(tmp_path / "raw"), data)
+        indices = {
+            "train": torch.tensor([0, 4]),
+            "valid": torch.tensor([2]),
+            "test": torch.tensor([1, 3, 5, 6, 7]),
+        }
+        dataset.split_idx = indices
+        cluster_params = {
+            "num_parts": 2,
+            "recursive": False,
+            "keep_inter_cluster_edges": False,
+            "sparse_format": "csr",
+        }
+        handles = []
+        for seed in [0, 4]:
+            preprocessor = PreProcessor(
+                dataset, str(tmp_path / "partition"), transforms_config=None
+            )
+            handles.append(preprocessor.pack_global_partition(
+                split_params=DictConfig({
+                    "learning_setting": "transductive",
+                    "split_type": "fixed",
+                    "data_seed": seed,
+                    "standardize": False,
+                }),
+                cluster_params=cluster_params,
+                stream_params={},
+            ))
+        assert handles[0]["split_hash"] == handles[1]["split_hash"]
+        assert handles[0]["paths"] == handles[1]["paths"]
+
+        handle = handles[0]
+        permutation = np.load(handle["paths"]["perm_to_global"])
+        original_ids = torch.from_numpy(permutation)
+        datamodule = ClusterGCNDataModule(
+            data_handle=handle, q=1, num_workers=0, cache_val=False
+        )
+        for split, key in [("train", "train"), ("val", "valid"), ("test", "test")]:
+            expected = torch.zeros(num_nodes, dtype=torch.bool)
+            expected[indices[key]] = True
+            stored = np.load(handle["paths"][f"{split}_mask_perm"])
+            assert np.array_equal(stored, expected.numpy()[permutation])
+            observed = []
+            for batch in datamodule.inference_dataloader(
+                split=split, q=1, cover_parts="all"
+            ):
+                node_ids = original_ids[batch.global_nid]
+                assert torch.equal(batch.x, data.x[node_ids])
+                assert torch.equal(batch.y, data.y[node_ids])
+                assert torch.equal(
+                    batch.supervised_mask, expected[node_ids]
+                )
+                observed.extend(node_ids[batch.supervised_mask].tolist())
+            assert sorted(observed) == sorted(indices[key].tolist())
 
     def test_pipeline_end_to_end(self):
         """Verify that partitioning constructs correct handle metadata and datamodule streams batches successfully."""

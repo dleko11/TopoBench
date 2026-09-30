@@ -16,6 +16,13 @@ STREAM_NUM_WORKERS="${STREAM_NUM_WORKERS:-0}"
 CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-$STREAM_NUM_WORKERS}"
 CACHE_VAL="${CACHE_VAL:-false}"
 VAL_SHUFFLE="${VAL_SHUFFLE:-true}"
+SPLIT_TYPE_OVERRIDE="${SPLIT_TYPE_OVERRIDE:-}"
+
+case "$SPLIT_TYPE_OVERRIDE" in
+    ""|random|stratified|k-fold|fixed) ;;
+    *) echo "ERROR: unsupported SPLIT_TYPE_OVERRIDE: $SPLIT_TYPE_OVERRIDE" >&2; exit 1 ;;
+esac
+split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -39,7 +46,7 @@ OPTUNA_STORAGE="${OPTUNA_STORAGE:-null}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
-log_group="${script_name}_sweep"
+log_group="${script_name}_sweep${split_suffix}"
 
 DATASET_SPECS=(
     "questions::graph/questions_for_partitioning::choice(500,1000,1500,2000)::choice(20,30,40,50)::50"
@@ -182,6 +189,7 @@ run_optuna_suite() {
     echo "Validation cache num_workers: $CACHE_NUM_WORKERS"
     echo "Validation cache enabled: $CACHE_VAL"
     echo "Validation shuffle: $VAL_SHUFFLE"
+    echo "Split type override: ${SPLIT_TYPE_OVERRIDE:-(dataset default)}"
     echo "Optimized metric: ${OPTIMIZED_METRIC:-config default}"
     echo "Optuna storage: $OPTUNA_STORAGE"
 
@@ -202,7 +210,7 @@ run_optuna_suite() {
             fi
 
             transform_name=$(transform_alias "$transform_kind")
-            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}"
+            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}${split_suffix}"
             local run_name="$study_name"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
@@ -228,7 +236,7 @@ run_optuna_suite() {
             done
 
             current_gpu="${gpus[$assigned_slot]}"
-            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}"
+            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}${split_suffix}"
             local optuna_storage="$OPTUNA_STORAGE"
             optuna_storage="${optuna_storage//\{study_name\}/$study_name}"
             sweeper_params=()
@@ -273,6 +281,9 @@ run_optuna_suite() {
                 "extras.print_config=false"
                 "extras.enforce_tags=false"
             )
+            if [[ -n "$SPLIT_TYPE_OVERRIDE" ]]; then
+                cmd+=("dataset.split_params.split_type=${SPLIT_TYPE_OVERRIDE}")
+            fi
 
             if [[ -n "$OPTIMIZED_METRIC" ]]; then
                 cmd+=("optimized_metric=${OPTIMIZED_METRIC}")

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from unittest.mock import MagicMock, patch
 from omegaconf import DictConfig
+from torch_geometric.data import Data
 
 from topobench.data.utils.split_utils import (
     k_fold_split,
@@ -695,6 +696,55 @@ class TestLoadTransductiveSplits:
         # Features and labels should be modified
         assert hasattr(data, "x")
         assert hasattr(data, "y")
+
+    @pytest.mark.parametrize("data_seed", range(5))
+    @pytest.mark.parametrize("index_type", [np.asarray, torch.tensor])
+    def test_transductive_fixed_split_preserves_indices(
+        self, data_seed, index_type
+    ):
+        """Fixed indices override existing masks without generating splits."""
+        mock_dataset = MagicMock()
+        mock_dataset.__len__.return_value = 1
+        mock_dataset.dataset.get_data_dir.return_value = self.test_dir
+        mock_dataset.data_list = [Data(
+            x=torch.ones(6, 2),
+            y=torch.arange(6) % 2,
+            train_mask=torch.arange(6),
+        )]
+        mock_dataset.split_idx = {
+            "train": index_type([4, 0]),
+            "valid": index_type([2]),
+            "test": index_type([1, 3, 5]),
+        }
+        parameters = DictConfig({"split_type": "fixed", "data_seed": data_seed})
+        rng_state = torch.get_rng_state().clone()
+        with patch(
+            "topobench.data.utils.split_utils.random_splitting",
+            side_effect=AssertionError("Fixed splits must not be regenerated"),
+        ):
+            dataset, val, test = load_transductive_splits(mock_dataset, parameters)
+
+        data = dataset.data_lst[0]
+        assert val is test is None
+        for name, key in [("train", "train"), ("val", "valid"), ("test", "test")]:
+            assert torch.equal(
+                data[f"{name}_mask"],
+                torch.as_tensor(mock_dataset.split_idx[key], dtype=torch.long),
+            )
+        assert torch.equal(torch.get_rng_state(), rng_state)
+        assert not os.listdir(self.test_dir)
+
+    @pytest.mark.parametrize("split_idx", [None, {"train": [0], "valid": [1]}])
+    def test_transductive_fixed_split_requires_supplied_indices(self, split_idx):
+        """Missing fixed indices fail rather than falling back to random splits."""
+        mock_dataset = MagicMock()
+        mock_dataset.__len__.return_value = 1
+        mock_dataset.data_list = [Data(x=torch.ones(3, 2), y=torch.arange(3))]
+        mock_dataset.split_idx = split_idx
+        with pytest.raises(ValueError, match="Fixed"):
+            load_transductive_splits(
+                mock_dataset, DictConfig({"split_type": "fixed"})
+            )
 
     def test_invalid_split_type_raises_error(self):
         """Test that invalid split type raises error."""

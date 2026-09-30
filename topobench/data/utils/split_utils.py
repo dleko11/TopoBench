@@ -444,15 +444,28 @@ def load_transductive_splits(dataset, parameters):
     elif parameters.split_type == "k-fold":
         splits = k_fold_split(labels, parameters, root=root)
 
+    elif parameters.split_type == "fixed":
+        splits = getattr(dataset, "split_idx", None)
+        if splits is None:
+            raise ValueError(
+                "Fixed transductive splits require dataset.split_idx."
+            )
+        missing = {"train", "valid", "test"}.difference(splits)
+        if missing:
+            raise ValueError(
+                f"Fixed split indices are missing keys: {sorted(missing)}"
+            )
+
     else:
         raise NotImplementedError(
-            f"split_type {parameters.split_type} not valid. Choose either 'random' or 'k-fold'"
+            f"split_type {parameters.split_type} not valid. Choose 'random', "
+            "'stratified', 'k-fold' or 'fixed'."
         )
 
     # Assign train val test masks to the graph
-    data.train_mask = torch.from_numpy(splits["train"])
-    data.val_mask = torch.from_numpy(splits["valid"])
-    data.test_mask = torch.from_numpy(splits["test"])
+    data.train_mask = torch.as_tensor(splits["train"], dtype=torch.long)
+    data.val_mask = torch.as_tensor(splits["valid"], dtype=torch.long)
+    data.test_mask = torch.as_tensor(splits["test"], dtype=torch.long)
 
     assert data.x.shape[0] > 0
     assert data.x[data.train_mask].shape[0] > 0

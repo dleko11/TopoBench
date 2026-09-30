@@ -30,6 +30,7 @@ TEST="${TEST:-true}"
 HIDDEN_CHANNELS_OVERRIDE="${HIDDEN_CHANNELS_OVERRIDE:-}"
 N_LAYERS_OVERRIDE="${N_LAYERS_OVERRIDE:-}"
 TRAIN_PROP_OVERRIDE="${TRAIN_PROP_OVERRIDE:-}"
+SPLIT_TYPE_OVERRIDE="${SPLIT_TYPE_OVERRIDE:-}"
 GPU_MEMORY_BENCHMARK="${GPU_MEMORY_BENCHMARK:-false}"
 GPU_MEMORY_RESULT_PATH="${GPU_MEMORY_RESULT_PATH:-}"
 
@@ -57,6 +58,8 @@ else
     run_name_prefix="${RUN_NAME_PREFIX:-final_partitioning}"
     log_group="${LOG_GROUP:-${script_name}_sweep}"
 fi
+split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}"
+log_group+="$split_suffix"
 
 source "$SCRIPT_DIR/common.sh"
 
@@ -64,6 +67,14 @@ PARTITION_GRID=()
 
 validate_mode_options() {
     local value
+    case "$SPLIT_TYPE_OVERRIDE" in
+        ""|random|stratified|k-fold|fixed) ;;
+        *) echo "ERROR: unsupported SPLIT_TYPE_OVERRIDE: $SPLIT_TYPE_OVERRIDE" >&2; exit 1 ;;
+    esac
+    if [[ "$SPLIT_TYPE_OVERRIDE" == "fixed" && -n "$TRAIN_PROP_OVERRIDE" ]]; then
+        echo "ERROR: TRAIN_PROP_OVERRIDE cannot be used with fixed splits." >&2
+        exit 1
+    fi
     for value in "$HIDDEN_CHANNELS_OVERRIDE" "$N_LAYERS_OVERRIDE"; do
         if [[ -n "$value" && ! "$value" =~ ^[1-9][0-9]*$ ]]; then
             echo "ERROR: width and depth overrides must be positive integers." >&2
@@ -309,6 +320,7 @@ run_final_partitioning_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
+    echo "Split type override: ${SPLIT_TYPE_OVERRIDE:-(dataset default)}"
     if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
         echo "Partition grid override: ${PARTITION_GRID[*]:-(model defaults)}"
         echo "Stream workers: $STREAM_NUM_WORKERS"
@@ -366,6 +378,7 @@ run_final_partitioning_suite() {
             if [[ -n "$N_LAYERS_OVERRIDE" ]]; then
                 run_name+="_l${N_LAYERS_OVERRIDE}"
             fi
+            run_name+="$split_suffix"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
                 skipped=$(( skipped + 1 ))
@@ -395,7 +408,7 @@ run_final_partitioning_suite() {
             else
                 project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_partitioning${WANDB_PROJECT_SUFFIX}"
             fi
-            project_name="${WANDB_PROJECT_NAME:-$project_name}"
+            project_name="${WANDB_PROJECT_NAME:-${project_name}${split_suffix}}"
 
             cmd=(
                 "python" "-m" "topobench"
@@ -412,6 +425,9 @@ run_final_partitioning_suite() {
                 "seed=${data_seed}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
             )
+            if [[ -n "$SPLIT_TYPE_OVERRIDE" ]]; then
+                cmd+=("dataset.split_params.split_type=${SPLIT_TYPE_OVERRIDE}")
+            fi
 
             if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
                 cmd+=(
