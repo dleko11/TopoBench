@@ -13,9 +13,11 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 @pytest.mark.parametrize("launcher", ["final_partitioning.sh", "optuna.sh"])
-@pytest.mark.parametrize("split_type", ["", "fixed"])
+@pytest.mark.parametrize("split_type", ["", "fixed", "random"])
+@pytest.mark.parametrize("dataset", ["ogbn_products", "reddit"])
+@pytest.mark.parametrize("learning_setting", ["", "inductive", "transductive"])
 def test_launcher_selects_split_and_separates_runs(
-    tmp_path, monkeypatch, launcher, split_type
+    tmp_path, monkeypatch, launcher, split_type, dataset, learning_setting
 ):
     """Official-split jobs cannot collide with old random-split job names."""
     monkeypatch.setenv("PROJECT_ROOT", str(REPO))
@@ -26,10 +28,11 @@ def test_launcher_selects_split_and_separates_runs(
         "SELECTED_GPUS": "0",
         "JOBS_PER_GPU_OVERRIDE": "1",
         "MAX_CONCURRENT_RUNS": "1",
-        "DATASET_FILTER": "ogbn_products",
+        "DATASET_FILTER": dataset,
         "MODEL_FILTER": "edgnn",
         "DATA_SEEDS_OVERRIDE": "0,4",
         "SPLIT_TYPE_OVERRIDE": split_type,
+        "LEARNING_SETTING_OVERRIDE": learning_setting,
         "TRAIN_PROP_OVERRIDE": "",
         "CACHE_VAL": "false",
         "VAL_SHUFFLE": "true",
@@ -69,28 +72,32 @@ def test_launcher_selects_split_and_separates_runs(
                 overrides=overrides,
                 return_hydra_config=True,
             )
-        assert cfg.dataset.split_params.split_type == (split_type or "random")
+        expected_split = split_type or "fixed"
+        expected_setting = learning_setting or (
+            "inductive" if dataset == "reddit" else "transductive"
+        )
+        assert cfg.dataset.split_params.split_type == expected_split
+        assert cfg.dataset.split_params.learning_setting == expected_setting
         assert cfg.model.model_name == "edgnn"
         assert cfg.trainer.max_epochs == 2
         assert cfg.test is False
         assert cfg.dataset.loader.parameters.stream.cache_val is False
         assert cfg.dataset.loader.parameters.stream.val_shuffle is True
-        suffix = "_split_fixed"
-        assert cfg.logger.wandb.project.endswith(suffix) == bool(split_type)
+        suffix = f"_split_{expected_split}_{expected_setting}"
+        assert cfg.logger.wandb.project.endswith(suffix)
         # Optuna's trial suffix contains an unresolved Hydra job interpolation.
         name = next(
             token
             for token in overrides
             if token.startswith("+logger.wandb.name=")
         )
-        assert (suffix in name) == bool(split_type)
+        assert suffix in name
         if launcher == "optuna.sh":
-            assert cfg.hydra.sweeper.study_name.endswith(suffix) == bool(
-                split_type
-            )
+            assert cfg.hydra.sweeper.study_name.endswith(suffix)
     expected_log = (
         "optuna_sweep" if launcher == "optuna.sh" else "split_test"
-    ) + ("_split_fixed" if split_type else "")
+    ) + (f"_split_{split_type}" if split_type else "")
+    expected_log += f"_{learning_setting}" if learning_setting else ""
     assert (tmp_path / "logs" / expected_log).is_dir()
 
 
@@ -128,4 +135,18 @@ def test_fixed_split_rejects_train_proportion_override(tmp_path):
     assert (
         "TRAIN_PROP_OVERRIDE cannot be used with fixed splits" in result.stderr
     )
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("launcher", ["final_partitioning.sh", "optuna.sh"])
+def test_launcher_rejects_unknown_learning_setting(tmp_path, launcher):
+    """Fail before creating logs when the pipeline selector is invalid."""
+    result = subprocess.run(
+        ["bash", str(REPO / "scripts/partitioning" / launcher)],
+        cwd=tmp_path,
+        env={**os.environ, "LEARNING_SETTING_OVERRIDE": "inductve"},
+        capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+    assert "unsupported LEARNING_SETTING_OVERRIDE" in result.stderr
     assert not list(tmp_path.iterdir())

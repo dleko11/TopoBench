@@ -3,6 +3,7 @@
 import pytest
 import torch
 from unittest.mock import MagicMock
+from torch_geometric.data import Data
 
 from topobench.model.model import TBModel
 
@@ -64,7 +65,7 @@ class TestProcessOutputs:
         MagicMock
             Batch mock with boolean masks.
         """
-        batch = MagicMock()
+        batch = MagicMock(spec=["train_mask", "val_mask", "test_mask"])
         # First 6 are train, next 2 val, last 2 test
         batch.train_mask = torch.tensor([1, 1, 1, 1, 1, 1, 0, 0, 0, 0], dtype=torch.bool)
         batch.val_mask = torch.tensor([0, 0, 0, 0, 0, 0, 1, 1, 0, 0], dtype=torch.bool)
@@ -174,3 +175,27 @@ class TestProcessOutputs:
 
         assert result["logits"].shape == original_logits.shape
         assert torch.equal(result["logits"], original_logits)
+
+
+@pytest.mark.parametrize("task_level", ["node", "node_inductive"])
+@pytest.mark.parametrize("state", ["Training", "Validation", "Test"])
+def test_cluster_supervision_excludes_context_nodes(task_level, state):
+    """Context labels cannot contribute to cluster loss or reported metrics."""
+    model = make_model(task_level)
+    model.state_str = state
+    mask = torch.tensor([False, True, False, True])
+    batch = Data(
+        supervised_mask=mask,
+        train_mask=torch.ones(4, dtype=torch.bool),
+        val_mask=torch.ones(4, dtype=torch.bool),
+        test_mask=torch.ones(4, dtype=torch.bool),
+    )
+    logits = torch.randn(4, 2, requires_grad=True)
+    labels = torch.tensor([0, 1, 1, 0])
+    result = model.process_outputs({"logits": logits, "labels": labels}, batch)
+    assert torch.equal(result["logits"], logits[mask])
+    assert torch.equal(result["labels"], labels[mask])
+    if state == "Training":
+        torch.nn.functional.cross_entropy(result["logits"], result["labels"]).backward()
+        assert torch.count_nonzero(logits.grad[~mask]) == 0
+        assert torch.count_nonzero(logits.grad[mask]) > 0

@@ -29,5 +29,11 @@ class RedditDatasetLoader(AbstractLoader):
         dataset = Reddit(
             root=str(self.root_data_dir / self.parameters.data_name)
         )
+        data = dataset[0]
+        dataset.split_idx = {
+            "train": data.train_mask.nonzero(as_tuple=True)[0],
+            "valid": data.val_mask.nonzero(as_tuple=True)[0],
+            "test": data.test_mask.nonzero(as_tuple=True)[0],
+        }
         self.data_dir = self.get_data_dir()
         return dataset

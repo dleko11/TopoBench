@@ -232,8 +232,8 @@ class TBModel(LightningModule):
         dict
             Dictionary containing the updated model output.
         """
-        if self.task_level == "node":
-            # Get the correct mask
+        mask = getattr(batch, "supervised_mask", None)
+        if self.task_level == "node" and mask is None:
             if self.state_str == "Training":
                 mask = batch.train_mask
             elif self.state_str == "Validation":
@@ -243,7 +243,7 @@ class TBModel(LightningModule):
             else:
                 raise ValueError("Invalid state_str")
 
-            # Keep only train data points
+        if self.task_level in {"node", "node_inductive"} and mask is not None:
             for key, val in model_out.items():
                 if key in ["logits", "labels"]:
                     model_out[key] = val[mask]

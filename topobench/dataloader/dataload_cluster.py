@@ -264,6 +264,11 @@ class BlockCSRBatchCollator:
         self.indptr = np.load(_path("indptr", "indptr.npy"), mmap_mode="r")
         self.indices = np.load(_path("indices", "indices.npy"), mmap_mode="r")
 
+        original_ids_path = self.ds.paths.get(
+            "original_nid_perm", _path("perm_to_global", "perm_to_global.npy")
+        )
+        self.original_nid_perm = np.load(original_ids_path, mmap_mode="r")
+
         # Optional arrays:
         self.X = None
         self.Y = None
@@ -443,6 +448,9 @@ class BlockCSRBatchCollator:
 
         data.supervised_mask = supervised_mask
         data.global_nid = global_nid
+        data.original_nid = torch.from_numpy(
+            self.original_nid_perm[global_ids].astype(np.int64, copy=True)
+        )
 
         # Backwards-compatible attributes expected by existing code:
         if self.active_split == "train":
@@ -520,16 +528,16 @@ def _process_and_save_batch(task):
 
 # DataModule-like wrapper
 class ClusterGCNDataModule(LightningDataModule):
-    """Streaming DataModule for a single global Cluster-GCN partition.
+    """Streaming DataModule for Cluster-GCN graph partitions.
 
-    Uses one shared global partition and memmap bundle; train, validation
-    and test loaders differ only in which cluster parts they cover and
-    which supervision mask is active.
+    Transductive runs share one partition. Inductive runs use the optional
+    training-only handle for training and the full graph for evaluation.
 
     Parameters
     ----------
     data_handle : dict
-        Handle dictionary describing dataset paths and metadata.
+        Full-graph partition metadata, optionally containing ``train_handle``
+        for a separate induced training graph.
     q : int, optional
         Number of clusters per mini-batch. Default is 10.
     q_val : int, optional
@@ -637,6 +645,8 @@ class ClusterGCNDataModule(LightningDataModule):
         )
 
         self.ds_adapter = _HandleAdapter(self.handle)
+        self.train_handle = self.handle.get("train_handle", self.handle)
+        self.train_ds_adapter = _HandleAdapter(self.train_handle)
         self._paths = self.handle.get("paths", {})
         self.transform_config = transform_config
         self.cache_num_workers = (
@@ -660,7 +670,12 @@ class ClusterGCNDataModule(LightningDataModule):
         self._parts_with = {}
         for split in ("train", "val", "test"):
             key = f"parts_with_{split}"
-            path = self._paths.get(key, None)
+            paths = (
+                self.train_ds_adapter.paths
+                if split == "train"
+                else self._paths
+            )
+            path = paths.get(key, None)
             if path and osp.exists(path):
                 self._parts_with[split] = np.load(path)
             else:
@@ -705,7 +720,10 @@ class ClusterGCNDataModule(LightningDataModule):
                 return arr.astype(np.int64)
 
         # Fallback: if parts_with_* is missing, use all parts.
-        return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
+        adapter = (
+            self.train_ds_adapter if split == "train" else self.ds_adapter
+        )
+        return np.arange(adapter.num_parts, dtype=np.int64)
 
     def _part_ids_for_coverage(
         self,
@@ -732,7 +750,10 @@ class ClusterGCNDataModule(LightningDataModule):
         if cover_parts == "split":
             return self._part_ids_for_split(split)
         if cover_parts == "all":
-            return np.arange(self.ds_adapter.num_parts, dtype=np.int64)
+            adapter = (
+                self.train_ds_adapter if split == "train" else self.ds_adapter
+            )
+            return np.arange(adapter.num_parts, dtype=np.int64)
         raise ValueError(
             "cover_parts must be either 'split' or 'all', "
             f"got {cover_parts!r}."
@@ -832,8 +853,11 @@ class ClusterGCNDataModule(LightningDataModule):
         if batch_size <= 0:
             raise ValueError(f"q must be positive, got {batch_size}.")
 
+        adapter = (
+            self.train_ds_adapter if split == "train" else self.ds_adapter
+        )
         collate = BlockCSRBatchCollator(
-            self.ds_adapter,
+            adapter,
             device=self.device,
             with_edge_attr=self.with_edge_attr,
             active_split=split,
@@ -922,6 +946,7 @@ class ClusterGCNDataModule(LightningDataModule):
             cache_id = str(
                 _make_hash(
                     {
+                        "batch_format_version": 2,
                         "partition_hash": self.handle.get("config_hash", None),
                         "split_hash": self.handle.get("split_hash", None),
                         "transform": self.transform_config,

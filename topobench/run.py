@@ -179,6 +179,7 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
             val_shuffle = bool(stream_cfg.get("val_shuffle", False))
             val_cache_fingerprint = make_hash(
                 {
+                    "batch_format_version": 2,
                     "partition_hash": handle.get("config_hash", None),
                     "split_hash": handle.get("split_hash", None),
                     "transform": transform_cfg_container,

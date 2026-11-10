@@ -5,10 +5,12 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import pytest
 import torch
 from omegaconf import DictConfig
 from torch_geometric.data import Data, InMemoryDataset
 
+from topobench.data.loaders.graph.reddit_dataset_loader import RedditDatasetLoader
 from topobench.data.preprocessor.preprocessor import PreProcessor
 from topobench.dataloader import ClusterGCNDataModule
 
@@ -303,3 +305,151 @@ class TestOnDiskClusteringPipeline:
         datamodule.cleanup_validation_cache()
         assert not osp.exists(cache_path)
         assert cleanup_path is not None and not osp.exists(cleanup_path)
+
+
+@pytest.mark.parametrize("learning_setting", ["inductive", "transductive"])
+@pytest.mark.parametrize("split_type", ["fixed", "random"])
+@pytest.mark.parametrize("cache_val", [False, True])
+def test_node_learning_setting_controls_topology(
+    tmp_path, learning_setting, split_type, cache_val
+):
+    """Withheld nodes and their edges never enter inductive training lifting."""
+    nodes = torch.arange(8)
+    edge_index = torch.combinations(nodes).t()
+    edge_index = torch.cat([edge_index, edge_index.flip(0)], dim=1)
+    data = Data(
+        x=nodes[:, None].float(), y=nodes % 2, edge_index=edge_index,
+        edge_attr=(edge_index[0] * 8 + edge_index[1])[:, None].float(),
+        num_nodes=8,
+    )
+    dataset = SyntheticGraphDataset(str(tmp_path / "raw"), data)
+    dataset.split_idx = {
+        "train": torch.tensor([0, 2, 4, 6]),
+        "valid": torch.tensor([1]),
+        "test": torch.tensor([3, 5, 7]),
+    }
+    preprocessor = PreProcessor(dataset, str(tmp_path / "partitions"))
+    handle = preprocessor.pack_global_partition(
+        split_params=DictConfig({
+            "learning_setting": learning_setting, "split_type": split_type,
+            "data_seed": 0, "train_prop": 0.5, "standardize": False,
+            "data_split_dir": str(tmp_path / "splits"),
+        }),
+        cluster_params={"num_parts": 2, "sparse_format": "csr"},
+        stream_params={},
+    )
+    permutation = torch.from_numpy(np.load(handle["paths"]["perm_to_global"]))
+    train_mask = torch.from_numpy(np.load(handle["paths"]["train_mask_perm"]))
+    train_nodes = set(permutation[train_mask].tolist())
+    seen_by_lifting = []
+
+    def inspect_lifting_input(batch):
+        seen_by_lifting.append(set(batch.x[:, 0].long().tolist()))
+        return batch
+
+    datamodule = ClusterGCNDataModule(
+        data_handle=handle, q=2, q_val=2, q_test=2,
+        cache_val=cache_val, with_edge_attr=True,
+        post_batch_transform=inspect_lifting_input,
+    )
+    batch = next(iter(datamodule.train_dataloader()))
+    expected_nodes = train_nodes if learning_setting == "inductive" else set(range(8))
+    assert seen_by_lifting == [expected_nodes]
+    assert set(batch.original_nid.tolist()) == expected_nodes
+    assert torch.equal(batch.x[:, 0].long(), batch.original_nid)
+    assert torch.equal(batch.y, data.y[batch.original_nid])
+    assert set(batch.original_nid[batch.supervised_mask].tolist()) == train_nodes
+    observed_edges = batch.original_nid[batch.edge_index]
+    assert set(map(tuple, observed_edges.t().tolist())) == {
+        (a, b) for a in expected_nodes for b in expected_nodes if a != b
+    }
+    assert torch.equal(
+        batch.edge_attr[:, 0], (observed_edges[0] * 8 + observed_edges[1]).float()
+    )
+    assert ("train_handle" in handle) == (learning_setting == "inductive")
+
+    datamodule.setup("validate")
+    for split, loader in [
+        ("val", datamodule.val_dataloader()),
+        ("test", datamodule.test_dataloader()),
+    ]:
+        batch = next(iter(loader))
+        expected_mask = torch.from_numpy(np.load(handle["paths"][f"{split}_mask_perm"]))
+        expected_supervised = set(permutation[expected_mask].tolist())
+        assert set(batch.original_nid[batch.supervised_mask].tolist()) == expected_supervised
+        assert torch.equal(batch.y, data.y[batch.original_nid])
+        assert torch.equal(batch.x[:, 0].long(), batch.original_nid)
+        eval_edges = batch.original_nid[batch.edge_index]
+        assert set(map(tuple, eval_edges.t().tolist())) == {
+            (a, b) for a in batch.original_nid.tolist()
+            for b in batch.original_nid.tolist() if a != b
+        }
+    full_eval_batch = next(iter(datamodule.inference_dataloader(
+        split="test", q=2, cover_parts="all"
+    )))
+    assert set(full_eval_batch.original_nid.tolist()) == set(range(8))
+    assert seen_by_lifting[-1] == set(range(8))
+
+
+def test_inductive_partition_cache_tracks_training_membership(tmp_path):
+    """Changed training membership rebuilds only the induced graph partition."""
+    nodes = torch.arange(8)
+    edges = torch.combinations(nodes).t()
+    data = Data(
+        x=nodes[:, None].float(), y=nodes % 2,
+        edge_index=torch.cat([edges, edges.flip(0)], dim=1), num_nodes=8,
+    )
+    handles = []
+    for train, valid, test in [
+        ([0, 2, 4, 6], [1], [3, 5, 7]),
+        ([0, 1, 4, 6], [2], [3, 5, 7]),
+        ([0, 2, 4, 6], [3], [1, 5, 7]),
+    ]:
+        dataset = SyntheticGraphDataset(str(tmp_path / "raw"), data.clone())
+        dataset.split_idx = {
+            "train": torch.tensor(train), "valid": torch.tensor(valid),
+            "test": torch.tensor(test),
+        }
+        preprocessor = PreProcessor(dataset, str(tmp_path / "partitions"))
+        handles.append(preprocessor.pack_global_partition(
+            split_params=DictConfig({
+                "learning_setting": "inductive", "split_type": "fixed",
+                "standardize": False,
+            }),
+            cluster_params={"num_parts": 2, "sparse_format": "csr"},
+            stream_params={},
+        ))
+    first, changed_train, changed_eval = handles
+    assert first["config_hash"] == changed_train["config_hash"] == changed_eval["config_hash"]
+    assert first["train_handle"]["config_hash"] != changed_train["train_handle"]["config_hash"]
+    assert first["train_handle"]["paths"] == changed_eval["train_handle"]["paths"]
+    assert first["split_hash"] != changed_eval["split_hash"]
+    for handle in handles:
+        training = handle["train_handle"]
+        assert training["config_hash"] != handle["config_hash"]
+        dm = ClusterGCNDataModule(data_handle=handle, q=2, cache_val=False)
+        batch = next(iter(dm.train_dataloader()))
+        assert torch.equal(batch.x[:, 0].long(), batch.original_nid)
+
+
+def test_reddit_exposes_official_node_indices(tmp_path):
+    """Preserve all three PyG masks as indices accepted by fixed node splits."""
+    data = Data(
+        train_mask=torch.tensor([True, False, False, True]),
+        val_mask=torch.tensor([False, True, False, False]),
+        test_mask=torch.tensor([False, False, True, False]),
+    )
+    dataset = MagicMock()
+    dataset.__getitem__.return_value = data
+    loader = RedditDatasetLoader(DictConfig({
+        "data_dir": str(tmp_path), "data_name": "Reddit",
+    }))
+    with patch(
+        "topobench.data.loaders.graph.reddit_dataset_loader.Reddit",
+        return_value=dataset,
+    ):
+        loaded = loader.load_dataset()
+    assert loaded is dataset
+    assert torch.equal(loaded.split_idx["train"], torch.tensor([0, 3]))
+    assert torch.equal(loaded.split_idx["valid"], torch.tensor([1]))
+    assert torch.equal(loaded.split_idx["test"], torch.tensor([2]))

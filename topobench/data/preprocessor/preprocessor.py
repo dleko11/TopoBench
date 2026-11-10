@@ -372,7 +372,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         pack_db: bool = True,
         pack_memmaps: bool = True,
     ) -> dict[str, Any]:
-        """Build and persist a global Cluster-GCN partition.
+        """Build Cluster-GCN partitions selected by the learning setting.
+
+        Inductive node learning uses a training-node induced partition and
+        a full-graph evaluation partition. Transductive learning shares the
+        full-graph partition across splits.
 
         The returned handle dictionary contains paths and metadata required by
         block-streaming dataloaders (e.g. `TBBlockStreamDataModule`) to build
@@ -382,8 +386,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         Parameters
         ----------
         split_params : dict
-            Parameters for the split pipeline; must define a transductive
-            single-graph setting and produce train/val/test masks.
+            Single-graph split parameters, including the existing
+            ``learning_setting`` tag (``inductive`` or ``transductive``).
         cluster_params : dict
             Parameters controlling graph partitioning:
             `num_parts`, `recursive`, `keep_inter_cluster_edges`,
@@ -402,9 +406,15 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         Returns
         -------
         dict
-            A handle with root/processed/memmap paths, partition metadata, and
-            file locations for all relevant arrays.
+            Full-graph handle with paths and partition metadata. In inductive
+            mode, ``train_handle`` contains the training-only partition.
         """
+        inductive = split_params.get("learning_setting") == "inductive"
+        if inductive and (len(self) != 1 or self.transforms_applied):
+            raise ValueError(
+                "Inductive cluster partitioning requires one unlifted graph. "
+                "Use the existing graph-level pipeline for multiple graphs."
+            )
         root = self.data_dir
         processed_base = osp.join(root, "processed")
         os.makedirs(processed_base, exist_ok=True)
@@ -413,7 +423,14 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         # concurrent seeds cannot observe a partially generated split set.
         split_generation_lock = osp.join(processed_base, "splits.lock")
         with filelock.FileLock(split_generation_lock, timeout=-1):
-            dataset_train, _, _ = self.load_dataset_splits(split_params)
+            if inductive:
+                # Reuse node membership selection before restricting topology.
+                with track_phase("preprocessing_split"):
+                    dataset_train, _, _ = load_transductive_splits(
+                        self, split_params
+                    )
+            else:
+                dataset_train, _, _ = self.load_dataset_splits(split_params)
 
         # Always use the split returned by the split pipeline. This is
         # important for datasets such as Reddit and Planetoid, whose raw PyG
@@ -440,10 +457,77 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
         full.train_mask = masks["train"]
         full.val_mask = masks["val"]
         full.test_mask = masks["test"]
-        split_hash = _split_mask_fingerprint(masks)
-
         if getattr(full, "edge_index", None) is None:
             raise ValueError("Full graph has no edge_index.")
+
+        training_nodes = None
+        if inductive:
+            if (masks["train"] & (masks["val"] | masks["test"])).any():
+                raise ValueError(
+                    "Inductive training and evaluation nodes overlap."
+                )
+            training_nodes = masks["train"].nonzero(as_tuple=True)[0]
+            if (
+                int(cluster_params.get("num_parts", 10))
+                > training_nodes.numel()
+            ):
+                raise ValueError(
+                    "num_parts exceeds the number of training nodes."
+                )
+
+        handle = self._pack_partition_graph(
+            full,
+            cluster_params,
+            dtype_policy,
+            split_params.get("standardize", False),
+        )
+        if training_nodes is not None:
+            handle = dict(handle)
+            handle["train_handle"] = self._pack_partition_graph(
+                full.subgraph(training_nodes),
+                cluster_params,
+                dtype_policy,
+                split_params.get("standardize", False),
+                original_node_ids=training_nodes,
+            )
+        return handle
+
+    def _pack_partition_graph(
+        self,
+        full: torch_geometric.data.Data,
+        cluster_params: dict,
+        dtype_policy: str,
+        standardize: bool,
+        original_node_ids: torch.Tensor | None = None,
+    ) -> dict[str, Any]:
+        """Persist one graph view and its split masks.
+
+        Parameters
+        ----------
+        full : torch_geometric.data.Data
+            Graph view with boolean train/val/test masks.
+        cluster_params : dict
+            Existing partition settings.
+        dtype_policy : str
+            Feature storage dtype policy.
+        standardize : bool
+            Whether features depend on the selected training split.
+        original_node_ids : torch.Tensor or None, optional
+            Original IDs of nodes in an induced training graph. None denotes
+            the full input graph.
+
+        Returns
+        -------
+        dict
+            Partition handle used by the streaming dataloader.
+        """
+        processed_base = osp.join(self.data_dir, "processed")
+        masks = {
+            "train": full.train_mask,
+            "val": full.val_mask,
+            "test": full.test_mask,
+        }
+        split_hash = _split_mask_fingerprint(masks)
 
         # Split masks do not affect the graph partition. Keep one structural
         # partition and attach small split-specific mask sidecars. Feature
@@ -454,7 +538,11 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             "cluster_params": ensure_serializable(cluster_params),
             "dtype_policy": dtype_policy,
         }
-        if split_params.get("standardize", False):
+        if original_node_ids is not None:
+            cluster_config["training_nodes_hash"] = hashlib.sha1(
+                original_node_ids.cpu().numpy().tobytes()
+            ).hexdigest()
+        if standardize:
             cluster_config["standardized_split_hash"] = split_hash
         config_hash = make_hash(cluster_config)
 
@@ -539,6 +627,20 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                         ),
                     },
                 }
+                if original_node_ids is not None:
+                    node_perm = np.load(
+                        structural_handle["paths"]["perm_to_global"]
+                    )
+                    original_ids_path = osp.join(
+                        mm_dir, "original_nid_perm.npy"
+                    )
+                    np.save(
+                        original_ids_path,
+                        original_node_ids[node_perm].cpu().numpy(),
+                    )
+                    structural_handle["paths"]["original_nid_perm"] = (
+                        original_ids_path
+                    )
                 tmp_structural_handle = structural_handle_path + ".tmp"
                 torch.save(structural_handle, tmp_structural_handle)
                 os.replace(tmp_structural_handle, structural_handle_path)

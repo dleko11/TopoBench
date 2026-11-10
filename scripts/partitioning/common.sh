@@ -1,5 +1,22 @@
 #!/bin/bash
 
+resolve_node_split_options() {
+    local dataset_config="$1"
+    local defaults
+    defaults=$(python - "$SCRIPT_DIR/../../configs/dataset/${dataset_config}.yaml" <<'PYTHON'
+import sys
+import yaml
+with open(sys.argv[1]) as source:
+    split = yaml.safe_load(source)["split_params"]
+print(split["split_type"], split["learning_setting"])
+PYTHON
+    ) || return 1
+    read -r effective_split_type effective_learning_setting <<< "$defaults"
+    effective_split_type="${SPLIT_TYPE_OVERRIDE:-$effective_split_type}"
+    effective_learning_setting="${LEARNING_SETTING_OVERRIDE:-$effective_learning_setting}"
+    protocol_suffix="_split_${effective_split_type}_${effective_learning_setting}"
+}
+
 find_logging_script() {
     local dir="$1"
     while [[ "$dir" != "/" ]]; do

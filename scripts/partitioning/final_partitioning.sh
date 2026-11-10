@@ -31,6 +31,7 @@ HIDDEN_CHANNELS_OVERRIDE="${HIDDEN_CHANNELS_OVERRIDE:-}"
 N_LAYERS_OVERRIDE="${N_LAYERS_OVERRIDE:-}"
 TRAIN_PROP_OVERRIDE="${TRAIN_PROP_OVERRIDE:-}"
 SPLIT_TYPE_OVERRIDE="${SPLIT_TYPE_OVERRIDE:-}"
+LEARNING_SETTING_OVERRIDE="${LEARNING_SETTING_OVERRIDE:-}"
 GPU_MEMORY_BENCHMARK="${GPU_MEMORY_BENCHMARK:-false}"
 GPU_MEMORY_RESULT_PATH="${GPU_MEMORY_RESULT_PATH:-}"
 
@@ -58,7 +59,11 @@ else
     run_name_prefix="${RUN_NAME_PREFIX:-final_partitioning}"
     log_group="${LOG_GROUP:-${script_name}_sweep}"
 fi
-split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}"
+case "$LEARNING_SETTING_OVERRIDE" in
+    ""|inductive|transductive) ;;
+    *) echo "ERROR: unsupported LEARNING_SETTING_OVERRIDE: $LEARNING_SETTING_OVERRIDE" >&2; exit 1 ;;
+esac
+split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}${LEARNING_SETTING_OVERRIDE:+_${LEARNING_SETTING_OVERRIDE}}"
 log_group+="$split_suffix"
 
 source "$SCRIPT_DIR/common.sh"
@@ -321,6 +326,7 @@ run_final_partitioning_suite() {
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Data seeds: ${DATA_SEEDS[*]}"
     echo "Split type override: ${SPLIT_TYPE_OVERRIDE:-(dataset default)}"
+    echo "Learning setting override: ${LEARNING_SETTING_OVERRIDE:-(dataset default)}"
     if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
         echo "Partition grid override: ${PARTITION_GRID[*]:-(model defaults)}"
         echo "Stream workers: $STREAM_NUM_WORKERS"
@@ -359,6 +365,15 @@ run_final_partitioning_suite() {
             exit 1
         fi
         out_channels="${HIDDEN_CHANNELS_OVERRIDE:-$out_channels}"
+        resolve_node_split_options "$dataset_config" || exit 1
+        if [[ "$effective_split_type" == "fixed" && -n "$TRAIN_PROP_OVERRIDE" ]]; then
+            echo "ERROR: TRAIN_PROP_OVERRIDE cannot be used with fixed splits." >&2
+            exit 1
+        fi
+        if [[ "$FULL_GRAPH_BASELINE" == "true" && "$effective_learning_setting" == "inductive" ]]; then
+            echo "ERROR: inductive node splits currently require the partitioning pipeline." >&2
+            exit 1
+        fi
 
         for data_seed in "${DATA_SEEDS[@]}"; do
             selected_dataset_config="$dataset_config"
@@ -378,7 +393,7 @@ run_final_partitioning_suite() {
             if [[ -n "$N_LAYERS_OVERRIDE" ]]; then
                 run_name+="_l${N_LAYERS_OVERRIDE}"
             fi
-            run_name+="$split_suffix"
+            run_name+="$protocol_suffix"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
                 skipped=$(( skipped + 1 ))
@@ -408,7 +423,7 @@ run_final_partitioning_suite() {
             else
                 project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}_partitioning${WANDB_PROJECT_SUFFIX}"
             fi
-            project_name="${WANDB_PROJECT_NAME:-${project_name}${split_suffix}}"
+            project_name="${WANDB_PROJECT_NAME:-${project_name}${protocol_suffix}}"
 
             cmd=(
                 "python" "-m" "topobench"
@@ -425,9 +440,10 @@ run_final_partitioning_suite() {
                 "seed=${data_seed}"
                 "dataset.dataloader_params.num_workers=${STREAM_NUM_WORKERS}"
             )
-            if [[ -n "$SPLIT_TYPE_OVERRIDE" ]]; then
-                cmd+=("dataset.split_params.split_type=${SPLIT_TYPE_OVERRIDE}")
-            fi
+            cmd+=(
+                "dataset.split_params.split_type=${effective_split_type}"
+                "dataset.split_params.learning_setting=${effective_learning_setting}"
+            )
 
             if [[ "$FULL_GRAPH_BASELINE" != "true" ]]; then
                 cmd+=(

@@ -17,12 +17,17 @@ CACHE_NUM_WORKERS="${CACHE_NUM_WORKERS:-$STREAM_NUM_WORKERS}"
 CACHE_VAL="${CACHE_VAL:-false}"
 VAL_SHUFFLE="${VAL_SHUFFLE:-true}"
 SPLIT_TYPE_OVERRIDE="${SPLIT_TYPE_OVERRIDE:-}"
+LEARNING_SETTING_OVERRIDE="${LEARNING_SETTING_OVERRIDE:-}"
 
 case "$SPLIT_TYPE_OVERRIDE" in
     ""|random|stratified|k-fold|fixed) ;;
     *) echo "ERROR: unsupported SPLIT_TYPE_OVERRIDE: $SPLIT_TYPE_OVERRIDE" >&2; exit 1 ;;
 esac
-split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}"
+case "$LEARNING_SETTING_OVERRIDE" in
+    ""|inductive|transductive) ;;
+    *) echo "ERROR: unsupported LEARNING_SETTING_OVERRIDE: $LEARNING_SETTING_OVERRIDE" >&2; exit 1 ;;
+esac
+split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}${LEARNING_SETTING_OVERRIDE:+_${LEARNING_SETTING_OVERRIDE}}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -190,6 +195,7 @@ run_optuna_suite() {
     echo "Validation cache enabled: $CACHE_VAL"
     echo "Validation shuffle: $VAL_SHUFFLE"
     echo "Split type override: ${SPLIT_TYPE_OVERRIDE:-(dataset default)}"
+    echo "Learning setting override: ${LEARNING_SETTING_OVERRIDE:-(dataset default)}"
     echo "Optimized metric: ${OPTIMIZED_METRIC:-config default}"
     echo "Optuna storage: $OPTUNA_STORAGE"
 
@@ -203,6 +209,8 @@ run_optuna_suite() {
             continue
         fi
 
+        resolve_node_split_options "$dataset_config" || exit 1
+
         for model_spec in "${MODEL_SPECS[@]}"; do
             IFS="::" read -r model_alias _ model_config _ transform_kind <<< "$model_spec"
             if ! matches_filter "$model_alias" "$MODEL_FILTER"; then
@@ -210,7 +218,7 @@ run_optuna_suite() {
             fi
 
             transform_name=$(transform_alias "$transform_kind")
-            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}${split_suffix}"
+            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}${protocol_suffix}"
             local run_name="$study_name"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
@@ -236,7 +244,7 @@ run_optuna_suite() {
             done
 
             current_gpu="${gpus[$assigned_slot]}"
-            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}${split_suffix}"
+            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}${protocol_suffix}"
             local optuna_storage="$OPTUNA_STORAGE"
             optuna_storage="${optuna_storage//\{study_name\}/$study_name}"
             sweeper_params=()
@@ -281,9 +289,10 @@ run_optuna_suite() {
                 "extras.print_config=false"
                 "extras.enforce_tags=false"
             )
-            if [[ -n "$SPLIT_TYPE_OVERRIDE" ]]; then
-                cmd+=("dataset.split_params.split_type=${SPLIT_TYPE_OVERRIDE}")
-            fi
+            cmd+=(
+                "dataset.split_params.split_type=${effective_split_type}"
+                "dataset.split_params.learning_setting=${effective_learning_setting}"
+            )
 
             if [[ -n "$OPTIMIZED_METRIC" ]]; then
                 cmd+=("optimized_metric=${OPTIMIZED_METRIC}")
