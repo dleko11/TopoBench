@@ -363,6 +363,58 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
                 Please define either 'inductive' or 'transductive'."
             )
 
+    def load_inductive_node_splits(
+        self, split_params, transforms_config=None, **kwargs
+    ) -> tuple[DataloadDataset, DataloadDataset, DataloadDataset]:
+        """Lift training-only and full evaluation graphs into separate caches."""
+        if len(self) != 1 or self.transforms_applied:
+            raise ValueError(
+                "Inductive node preprocessing requires one unlifted graph."
+            )
+        with track_phase("preprocessing_split"):
+            dataset, _, _ = load_transductive_splits(self, split_params)
+        full = dataset.data_lst[0]
+        masks = {
+            name: to_bool_mask(getattr(full, f"{name}_mask"), full.num_nodes)
+            for name in ("train", "val", "test")
+        }
+        if not masks["train"].any():
+            raise ValueError("Inductive training requires at least one training node.")
+        if (masks["train"] & (masks["val"] | masks["test"])).any():
+            raise ValueError("Inductive training and evaluation nodes overlap.")
+        for name, mask in masks.items():
+            setattr(full, f"{name}_mask", mask)
+        full.original_nid = torch.arange(full.num_nodes)
+        training = full.subgraph(masks["train"])
+        split_hash = make_hash(
+            {
+                "masks": _split_mask_fingerprint(masks),
+                "standardize": split_params.get("standardize", False),
+            }
+        )
+        datasets = []
+        for name, graph in (("train", training), ("eval", full)):
+            source = torch_geometric.data.InMemoryDataset()
+            source._data = graph
+            source.slices = None
+            processed = PreProcessor(
+                source,
+                osp.join(self.data_dir, "inductive_node", str(split_hash), name),
+                transforms_config,
+                **kwargs,
+            )
+            datasets.append(DataloadDataset(processed.data_list))
+        training = datasets[0].data_lst[0]
+        training.supervised_mask = training.train_mask
+        evaluation = datasets[1].data_lst[0]
+        validation = copy.copy(evaluation)
+        validation.supervised_mask = validation.val_mask
+        testing = copy.copy(evaluation)
+        testing.supervised_mask = testing.test_mask
+        return (
+            datasets[0], DataloadDataset([validation]), DataloadDataset([testing])
+        )
+
     def pack_global_partition(
         self,
         split_params: dict,
@@ -538,6 +590,8 @@ class PreProcessor(torch_geometric.data.InMemoryDataset):
             "cluster_params": ensure_serializable(cluster_params),
             "dtype_policy": dtype_policy,
         }
+        if full.y.dim() > 1:
+            cluster_config["label_shape"] = list(full.y.shape[1:])
         if original_node_ids is not None:
             cluster_config["training_nodes_hash"] = hashlib.sha1(
                 original_node_ids.cpu().numpy().tobytes()

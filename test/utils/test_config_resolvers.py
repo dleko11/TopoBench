@@ -75,7 +75,7 @@ class TestConfigResolvers:
         assert out == expected
 
         out = get_default_metrics("multilabel classification", 2)
-        assert out == expected
+        assert out == ["accuracy", "precision", "recall", "f1_micro"]
 
         with pytest.raises(ValueError, match="Invalid task") as e:
             get_default_metrics("some_task", 2)

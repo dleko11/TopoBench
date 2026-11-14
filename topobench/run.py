@@ -237,15 +237,30 @@ def run(cfg: DictConfig) -> tuple[dict[str, Any], dict[str, Any]]:
                         False,
                     )
                 )
-            preprocessor = preprocessor_cls(
-                dataset,
-                dataset_dir,
-                transform_config,
-                **preprocessor_kwargs,
+            inductive_nodes = (
+                cfg.dataset.parameters.task_level == "node"
+                and cfg.dataset.split_params.get("learning_setting") == "inductive"
+                and len(dataset) == 1
             )
-            dataset_train, dataset_val, dataset_test = (
-                preprocessor.load_dataset_splits(cfg.dataset.split_params)
-            )
+            if inductive_nodes:
+                preprocessor = PreProcessor(dataset, dataset_dir, None)
+                dataset_train, dataset_val, dataset_test = (
+                    preprocessor.load_inductive_node_splits(
+                        cfg.dataset.split_params,
+                        transform_config,
+                        **preprocessor_kwargs,
+                    )
+                )
+            else:
+                preprocessor = preprocessor_cls(
+                    dataset,
+                    dataset_dir,
+                    transform_config,
+                    **preprocessor_kwargs,
+                )
+                dataset_train, dataset_val, dataset_test = (
+                    preprocessor.load_dataset_splits(cfg.dataset.split_params)
+                )
 
         with phase_tracker.track("datamodule_init"):
             log.info("Instantiating datamodule...")

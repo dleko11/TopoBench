@@ -24,6 +24,7 @@ METRICS = {
     "f1": F1Score,
     "auroc": AUROC,
     "f1_macro": F1Score,
+    "f1_micro": F1Score,
     "f1_weighted": F1Score,
     "confusion_matrix": ConfusionMatrix,
     "mae": MeanAbsoluteError,

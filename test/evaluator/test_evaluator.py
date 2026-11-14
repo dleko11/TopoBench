@@ -132,19 +132,17 @@ class TestTBEvaluator:
         with pytest.raises(ValueError, match="Invalid task"):
             TBEvaluator(task="wrong_task", num_classes=2, metrics=["accuracy"])
 
-    def test_multilabel_not_implemented(self):
-        """Test that multilabel classification raises NotImplementedError."""
+    def test_multilabel_micro_f1_uses_sigmoid_logits(self):
+        """Labels are independent, including when all logits lie in [0, 1]."""
         evaluator = TBEvaluator(
-            task="multilabel classification",
-            num_classes=3,
-            metrics=["accuracy"]
+            task="multilabel classification", num_classes=3,
+            metrics=["f1_micro"],
         )
-
-        with pytest.raises(NotImplementedError, match="Multilabel classification"):
-            evaluator.update({
-                "logits": torch.tensor([[1, 0, 0], [0, 1, 1]]),
-                "labels": torch.tensor([[1, 1, 0], [0, 1, 1]])
-            })
+        evaluator.update({
+            "logits": torch.tensor([[0.2, 0.1, 0.3], [0.1, 0.4, 0.2]]),
+            "labels": torch.tensor([[1, 1, 0], [0, 1, 1]]),
+        })
+        assert evaluator.compute()["f1_micro"].item() == pytest.approx(0.8)
 
     def test_multioutput_classification(self):
         """Test the update and compute methods for multioutput classification."""

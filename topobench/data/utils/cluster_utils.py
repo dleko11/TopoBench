@@ -550,13 +550,13 @@ class ClusterOnDisk(OnDiskDataset):
 
         # y_perm.npy (labels)
         if getattr(full, "y", None) is not None:
-            y_src = full.y.view(-1)[node_perm].to(torch.int64).cpu().numpy()
+            y_src = full.y[node_perm].to(torch.int64).cpu().numpy()
             y_path = osp.join(out_dir, "y_perm.npy")
             y_mm = open_memmap(
                 y_path,
                 dtype="int64",
                 mode="w+",
-                shape=(y_src.shape[0],),
+                shape=y_src.shape,
             )
             y_mm[:] = y_src
             del y_mm

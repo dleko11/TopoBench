@@ -38,9 +38,7 @@ class TBEvaluator(AbstractEvaluator):
 
         elif self.task == "multilabel classification":
             num_classes = kwargs.get("num_classes", 1)
-            parameters = {"num_classes": num_classes}
-            parameters["task"] = "multilabel"
-            parameters["num_labels"] = num_classes
+            parameters = {"task": "multilabel", "num_labels": num_classes}
             metric_names = kwargs["metrics"]
 
         elif self.task == "multioutput classification":
@@ -78,9 +76,10 @@ class TBEvaluator(AbstractEvaluator):
                 metrics[name] = METRICS[metric_id](
                     average="macro", **parameters
                 )
-            elif metric_id == "f1_weighted":
+            elif metric_id in ["f1_micro", "f1_weighted"]:
                 metrics[name] = METRICS[metric_id](
-                    average="weighted", **parameters
+                    average="micro" if metric_id == "f1_micro" else "weighted",
+                    **parameters,
                 )
             elif metric_id == "confusion_matrix":
                 metrics[name] = METRICS[metric_id](**parameters)
@@ -143,11 +142,7 @@ class TBEvaluator(AbstractEvaluator):
                 )
 
         elif self.task == "multilabel classification":
-            self.metrics.update(preds, target)
-            # Raise not supported error
-            raise NotImplementedError(
-                "Multilabel classification evaluator is not supported yet"
-            )
+            self.metrics.update(preds.sigmoid(), target.long())
 
     def compute(self):
         r"""Compute the metrics.

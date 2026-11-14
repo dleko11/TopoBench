@@ -11,6 +11,7 @@ from omegaconf import DictConfig
 from torch_geometric.data import Data, InMemoryDataset
 
 from topobench.data.loaders.graph.reddit_dataset_loader import RedditDatasetLoader
+from topobench.data.loaders.graph.graphsaint_datasets import GraphSAINTDatasetLoader
 from topobench.data.preprocessor.preprocessor import PreProcessor
 from topobench.dataloader import ClusterGCNDataModule
 
@@ -432,7 +433,12 @@ def test_inductive_partition_cache_tracks_training_membership(tmp_path):
         assert torch.equal(batch.x[:, 0].long(), batch.original_nid)
 
 
-def test_reddit_exposes_official_node_indices(tmp_path):
+@pytest.mark.parametrize("name,loader_class,module", [
+    ("Reddit", RedditDatasetLoader, "reddit_dataset_loader"),
+    ("Flickr", GraphSAINTDatasetLoader, "graphsaint_datasets"),
+    ("Yelp", GraphSAINTDatasetLoader, "graphsaint_datasets"),
+])
+def test_dataset_exposes_official_node_indices(tmp_path, name, loader_class, module):
     """Preserve all three PyG masks as indices accepted by fixed node splits."""
     data = Data(
         train_mask=torch.tensor([True, False, False, True]),
@@ -441,11 +447,11 @@ def test_reddit_exposes_official_node_indices(tmp_path):
     )
     dataset = MagicMock()
     dataset.__getitem__.return_value = data
-    loader = RedditDatasetLoader(DictConfig({
-        "data_dir": str(tmp_path), "data_name": "Reddit",
+    loader = loader_class(DictConfig({
+        "data_dir": str(tmp_path), "data_name": name,
     }))
     with patch(
-        "topobench.data.loaders.graph.reddit_dataset_loader.Reddit",
+        f"topobench.data.loaders.graph.{module}.{name}",
         return_value=dataset,
     ):
         loaded = loader.load_dataset()

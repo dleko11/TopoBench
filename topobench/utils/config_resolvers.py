@@ -1065,7 +1065,9 @@ def get_default_metrics(task, num_classes, metrics=None):
     if metrics is not None:
         return metrics
     else:
-        if task in ["multioutput classification", "multilabel classification"]:
+        if task == "multilabel classification":
+            return ["accuracy", "precision", "recall", "f1_micro"]
+        if task == "multioutput classification":
             metric_names = ["accuracy", "precision", "recall", "f1"]
             metrics = []
             for dim in range(num_classes):

@@ -8,9 +8,23 @@ KEEP_SUCCESS_LOGS="${KEEP_SUCCESS_LOGS:-true}"
 wandb_entity="${wandb_entity:-topobench-scalability}"
 
 N_TRIALS="${N_TRIALS:-50}"
+OPTUNA_N_JOBS="${OPTUNA_N_JOBS:-1}"
+OPTUNA_N_STARTUP_TRIALS="${OPTUNA_N_STARTUP_TRIALS:-10}"
 TRAINER="${TRAINER:-gpu}"
 LOGGER="${LOGGER:-wandb}"
 DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-}"
+SPLIT_TYPE_OVERRIDE="${SPLIT_TYPE_OVERRIDE:-}"
+LEARNING_SETTING_OVERRIDE="${LEARNING_SETTING_OVERRIDE:-}"
+
+case "$SPLIT_TYPE_OVERRIDE" in
+    ""|random|stratified|k-fold|fixed) ;;
+    *) echo "ERROR: unsupported SPLIT_TYPE_OVERRIDE: $SPLIT_TYPE_OVERRIDE" >&2; exit 1 ;;
+esac
+case "$LEARNING_SETTING_OVERRIDE" in
+    ""|inductive|transductive) ;;
+    *) echo "ERROR: unsupported LEARNING_SETTING_OVERRIDE: $LEARNING_SETTING_OVERRIDE" >&2; exit 1 ;;
+esac
+split_suffix="${SPLIT_TYPE_OVERRIDE:+_split_${SPLIT_TYPE_OVERRIDE}}${LEARNING_SETTING_OVERRIDE:+_${LEARNING_SETTING_OVERRIDE}}"
 
 MAX_EPOCHS="${MAX_EPOCHS:-300}"
 MIN_EPOCHS="${MIN_EPOCHS:-1}"
@@ -33,12 +47,14 @@ OPTUNA_STORAGE="${OPTUNA_STORAGE:-null}"
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 script_name="$(basename "${BASH_SOURCE[0]}" .sh)"
-log_group="${script_name}_sweep"
+log_group="${script_name}_sweep${split_suffix}"
 
 DATASET_SPECS=(
     "questions::graph/questions"
     "cora_full::graph/cocitation_cora_full"
     "amazon_ratings::graph/amazon_ratings"
+    "flickr::graph/flickr"
+    "yelp::graph/yelp"
 )
 
 MODEL_SPECS=(
@@ -153,12 +169,16 @@ run_optuna_suite() {
     echo "Datasets filter: ${DATASET_FILTER:-all}"
     echo "Models filter: ${MODEL_FILTER:-all}"
     echo "Trials per study: $N_TRIALS"
+    echo "Parallel trials per study: $OPTUNA_N_JOBS"
+    echo "Optuna startup trials: $OPTUNA_N_STARTUP_TRIALS"
     echo "Common LR space: $LR_SPACE"
     echo "Common weight decay space: $WEIGHT_DECAY_SPACE"
     echo "Common out_channels space: $OUT_CHANNELS_SPACE"
     echo "Common proj_dropout space: $PROJ_DROPOUT_SPACE"
     echo "Dataloader num_workers override: ${DATALOADER_NUM_WORKERS:-config default}"
     echo "Optuna storage: $OPTUNA_STORAGE"
+    echo "Split type override: ${SPLIT_TYPE_OVERRIDE:-(dataset default)}"
+    echo "Learning setting override: ${LEARNING_SETTING_OVERRIDE:-(dataset default)}"
 
     local dataset_spec model_spec
     local dataset_alias dataset_config
@@ -170,6 +190,8 @@ run_optuna_suite() {
             continue
         fi
 
+        resolve_node_split_options "$dataset_config" || exit 1
+
         for model_spec in "${MODEL_SPECS[@]}"; do
             IFS="::" read -r model_alias _ model_config _ transform_kind <<< "$model_spec"
             if ! matches_filter "$model_alias" "$MODEL_FILTER"; then
@@ -177,7 +199,7 @@ run_optuna_suite() {
             fi
 
             transform_name=$(transform_alias "$transform_kind")
-            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}"
+            local study_name="${STUDY_PREFIX}_${dataset_alias}_${model_alias}${protocol_suffix}"
             local run_name="$study_name"
 
             if [[ "$RESUME" == "true" && -f "$success_log" ]] && grep -Fq "[SUCCESS] ${run_name}" "$success_log"; then
@@ -203,7 +225,7 @@ run_optuna_suite() {
             done
 
             current_gpu="${gpus[$assigned_slot]}"
-            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}"
+            local project_name="${WANDB_PROJECT_PREFIX}_${dataset_alias}${WANDB_PROJECT_SUFFIX}${protocol_suffix}"
             local optuna_storage="$OPTUNA_STORAGE"
             optuna_storage="${optuna_storage//\{study_name\}/$study_name}"
             sweeper_params=()
@@ -219,14 +241,19 @@ run_optuna_suite() {
             cmd=(
                 "python" "-m" "topobench" "--multirun"
                 "hparams_search=partitioning_optuna"
+                "hydra/launcher=joblib"
                 "dataset=${dataset_config}"
+                "dataset.split_params.split_type=${effective_split_type}"
+                "dataset.split_params.learning_setting=${effective_learning_setting}"
                 "model=${model_config}"
                 "trainer=${TRAINER}"
                 "logger=${LOGGER}"
                 "hydra.sweeper.storage=${optuna_storage}"
                 "hydra.sweeper.study_name=${study_name}"
                 "hydra.sweeper.n_trials=${N_TRIALS}"
-                "hydra.sweeper.n_jobs=1"
+                "hydra.sweeper.n_jobs=${OPTUNA_N_JOBS}"
+                "hydra.sweeper.sampler.n_startup_trials=${OPTUNA_N_STARTUP_TRIALS}"
+                "hydra.launcher.n_jobs=${OPTUNA_N_JOBS}"
                 "+hydra.sweeper.params=${sweeper_params_override}"
                 "dataset.dataloader_params.batch_size=1"
                 "trainer.max_epochs=${MAX_EPOCHS}"
@@ -250,7 +277,8 @@ run_optuna_suite() {
             if [[ "$LOGGER" == "wandb" ]]; then
                 cmd+=(
                     "logger.wandb.project=${project_name}"
-                    "+logger.wandb.name=${study_name}"
+                    "logger.wandb.group=${study_name}"
+                    "+logger.wandb.name=${study_name}_trial_\${hydra:job.num}"
                 )
                 if [[ -n "${wandb_entity:-}" ]]; then
                     cmd+=("+logger.wandb.entity=${wandb_entity}")

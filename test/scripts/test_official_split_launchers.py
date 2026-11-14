@@ -150,3 +150,65 @@ def test_launcher_rejects_unknown_learning_setting(tmp_path, launcher):
     assert result.returncode != 0
     assert "unsupported LEARNING_SETTING_OVERRIDE" in result.stderr
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("launcher,dataset", [
+    ("optuna.sh", "reddit"),
+    ("optuna.sh", "flickr"),
+    ("optuna.sh", "yelp"),
+    ("optuna_full_ds.sh", "flickr"),
+    ("optuna_full_ds.sh", "yelp"),
+])
+def test_inductive_optuna_configurations(tmp_path, launcher, dataset):
+    """All seven model commands use the official split and correct objective."""
+    result = subprocess.run(
+        ["bash", str(REPO / "scripts/partitioning" / launcher)],
+        cwd=tmp_path,
+        env={
+            **os.environ, "PROJECT_ROOT": str(REPO),
+            "DRY_RUN": "true", "RESUME": "false", "SELECTED_GPUS": "0",
+            "JOBS_PER_GPU_OVERRIDE": "1", "DATASET_FILTER": dataset,
+            "MODEL_FILTER": "", "SPLIT_TYPE_OVERRIDE": "",
+            "LEARNING_SETTING_OVERRIDE": "", "LOGGER": "wandb",
+            "CACHE_VAL": "false", "VAL_SHUFFLE": "true",
+            "N_TRIALS": "50", "OPTUNA_N_JOBS": "5",
+            "OPTUNA_N_STARTUP_TRIALS": "5",
+        },
+        capture_output=True, text=True, check=True,
+    )
+    commands = [shlex.split(line.removeprefix("[DRY_RUN] "))
+                for line in result.stdout.splitlines()
+                if line.startswith("[DRY_RUN] ")]
+    assert len(commands) == 7
+    for command in commands:
+        overrides = [arg for arg in command[3:] if arg != "--multirun"]
+        with initialize_config_dir(config_dir=str(REPO / "configs"), version_base="1.3"):
+            cfg = compose(config_name="run.yaml", overrides=overrides,
+                          return_hydra_config=True)
+        assert cfg.dataset.split_params.learning_setting == "inductive"
+        assert cfg.dataset.split_params.split_type == "fixed"
+        assert cfg.hydra.sweeper.study_name.endswith("_split_fixed_inductive")
+        assert cfg.logger.wandb.project.endswith("_split_fixed_inductive")
+        assert cfg.logger.wandb.group == cfg.hydra.sweeper.study_name
+        assert cfg.optimized_metric == "best_monitored_score"
+        assert cfg.hydra.sweeper.n_trials == 50
+        assert cfg.hydra.sweeper.n_jobs == 5
+        assert cfg.hydra.launcher.n_jobs == 5
+        assert cfg.hydra.sweeper.sampler.n_startup_trials == 5
+        expected_metric = "f1_micro" if dataset == "yelp" else "accuracy"
+        assert cfg.callbacks.model_checkpoint.monitor == f"val/{expected_metric}"
+        assert cfg.dataset.parameters.monitor_metric == expected_metric
+        assert cfg.test is False
+        if dataset == "yelp":
+            assert cfg.dataset.parameters.task == "multilabel classification"
+            assert cfg.dataset.parameters.loss_type == "BCE"
+            assert list(cfg.evaluator.metrics) == ["f1_micro"]
+        if launcher == "optuna.sh":
+            assert cfg.dataset.loader.parameters.memory_type == "on_disk_cluster"
+            assert cfg.dataset.loader.parameters.stream.cache_val is False
+            assert cfg.dataset.loader.parameters.stream.val_shuffle is True
+            assert "dataset.loader.parameters.cluster.num_parts" in cfg.hydra.sweeper.params
+        else:
+            assert "cluster" not in cfg.dataset.loader.parameters
+            assert not any("cluster." in key or "stream." in key
+                           for key in cfg.hydra.sweeper.params)

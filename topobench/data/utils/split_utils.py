@@ -426,8 +426,10 @@ def load_transductive_splits(dataset, parameters):
     data = dataset.data_list[0]
     labels = data.y.numpy()
 
-    # Ensure labels are one dimensional array
-    assert len(labels.shape) == 1, "Labels should be one dimensional array"
+    if labels.ndim not in (1, 2):
+        raise ValueError("Node labels must be a vector or a label matrix.")
+    if labels.ndim == 2 and parameters.split_type != "fixed":
+        raise ValueError("Multilabel node targets require fixed splits.")
 
     root = (
         dataset.dataset.get_data_dir()
