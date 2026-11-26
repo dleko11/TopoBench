@@ -372,6 +372,10 @@ def run_check(
     """
     dtype = torch.float64
     args.proj_dropout = 0.0
+    # Both arms lift features in float32 (as ProjectionSum does) but sum in a
+    # different order. On a 1/256 grid those sums are exact in any order, so
+    # the check isolates the distributed computation from input rounding.
+    x = torch.round(x * 256) / 256
     me = dist.get_rank()
     model = build_model(args, x.size(1), num_classes, dtype).to(device)
     runner = Distributed(
