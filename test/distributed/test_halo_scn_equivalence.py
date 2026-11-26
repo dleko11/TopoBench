@@ -241,3 +241,50 @@ def test_streamed_scn_matches_full_graph(case):
         torch.testing.assert_close(
             b.grad, a.grad, rtol=0, atol=TOLERANCE, msg=name
         )
+
+
+@pytest.mark.parametrize("case", sorted(ALL_CASES))
+def test_encoder_first_scn_matches_full_graph(case):
+    import copy
+
+    import torch.nn.functional as F
+
+    from topobench.distributed.encoder_first import EncoderFirstSCN
+
+    edge_index, num_nodes, part, x_0, y = _setup(case)
+    plan = build_halo_plan(edge_index, num_nodes, part)
+    reference = cast_batch(
+        build_reference_batch(x_0, edge_index, y), torch.float64
+    )
+    alignment = align_to_reference(plan, reference_cells(reference))
+    model = _model(x_0.size(1))
+    twin = copy.deepcopy(model)
+
+    expected_stages = reference_stages(model, reference)
+    expected = model(reference.clone())["logits"]
+    F.cross_entropy(expected, y).backward()
+
+    runner = EncoderFirstSCN(
+        twin, plan, x_0, torch.device("cpu"), torch.float64
+    )
+    stages = runner()
+    for rank in range(3):
+        torch.testing.assert_close(
+            stages[f"encoder/x_{rank}"].detach(),
+            expected_stages[f"encoder/x_{rank}"][alignment[rank]],
+            rtol=0,
+            atol=TOLERANCE,
+        )
+    F.cross_entropy(stages["logits"], y[alignment[0]]).backward()
+    torch.testing.assert_close(
+        stages["logits"].detach(),
+        expected.detach()[alignment[0]],
+        rtol=0,
+        atol=TOLERANCE,
+    )
+    for (name, a), b in zip(
+        model.named_parameters(), twin.parameters(), strict=True
+    ):
+        torch.testing.assert_close(
+            b.grad, a.grad, rtol=0, atol=TOLERANCE, msg=name
+        )

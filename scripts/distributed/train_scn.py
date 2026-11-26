@@ -40,6 +40,7 @@ from torchmetrics.functional.classification import (
 )
 
 from topobench.data.utils.split_utils import random_splitting
+from topobench.distributed.encoder_first import EncoderFirstSCN
 from topobench.distributed.halo import (
     build_halo_plan,
     canonical_edges,
@@ -88,7 +89,9 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
-        "--mode", choices=["full", "dist", "check", "stream"], required=True
+        "--mode",
+        choices=["full", "dist", "check", "stream", "first"],
+        required=True,
     )
     parser.add_argument("--dataset", choices=sorted(DATASETS), required=True)
     parser.add_argument("--data-dir", default="datasets")
@@ -113,7 +116,7 @@ def parse_args() -> argparse.Namespace:
         "--parts",
         type=int,
         default=6,
-        help="Parts streamed through one GPU in --mode stream.",
+        help="Parts on one GPU in --mode stream or first (1 = whole graph).",
     )
     parser.add_argument("--out", default="logs/distributed/train")
     return parser.parse_args()
@@ -278,11 +281,23 @@ class Distributed:
         return self.forward()
 
 
-class Streamed:
-    """One GPU: every part lifted in succession, input encoder streamed by part."""
+class OneGPU:
+    """One GPU: every part lifted in succession, then either the input
+    encoder streamed by part (``stream``) or evaluated from node features
+    (``first``, encoder-first)."""
 
     def __init__(
-        self, model, x, edge_index, labels, code, parts, weight, device, dtype
+        self,
+        model,
+        x,
+        edge_index,
+        labels,
+        code,
+        parts,
+        weight,
+        device,
+        dtype,
+        kind="stream",
     ):
         num_nodes = x.size(0)
         self.timings = {}
@@ -300,16 +315,21 @@ class Streamed:
         plan = build_halo_plan(edge_index, num_nodes, part)
         self.timings["lift_seconds"] = time.perf_counter() - start
         start = time.perf_counter()
-        self.forward = StreamedSCN(model, plan, x, device, dtype)
-        self.timings["feature_lift_seconds"] = time.perf_counter() - start
+        if kind == "first":
+            self.forward = EncoderFirstSCN(model, plan, x, device, dtype)
+            self.host_feature_bytes = 0
+            self.timings["encoder_setup_seconds"] = time.perf_counter() - start
+        else:
+            self.forward = StreamedSCN(model, plan, x, device, dtype)
+            self.host_feature_bytes = sum(
+                f.numel() * f.element_size() for f in self.forward.features
+            )
+            self.timings["feature_lift_seconds"] = time.perf_counter() - start
         nodes = plan.cells(0)[:, 0]
         self.nodes = nodes.to(device)
         self.labels = labels[nodes].to(device)
         self.code = code[nodes].to(device)
         self.counts = [plan.num_cells(r) for r in range(3)]
-        self.host_feature_bytes = sum(
-            f.numel() * f.element_size() for f in self.forward.features
-        )
 
     def __call__(self):
         return self.forward()
@@ -591,8 +611,8 @@ def main() -> None:
             runner = Distributed(
                 model, x, edge_index, labels, code, part, device, dtype
             )
-        elif args.mode == "stream":
-            runner = Streamed(
+        elif args.mode in ("stream", "first"):
+            runner = OneGPU(
                 model,
                 x,
                 edge_index,
@@ -602,6 +622,7 @@ def main() -> None:
                 args.node_weight,
                 device,
                 dtype,
+                kind=args.mode,
             )
         else:
             runner = FullGraph(
@@ -682,7 +703,7 @@ def main() -> None:
         report["args"] = vars(args)
         out = Path(args.out)
         out.mkdir(parents=True, exist_ok=True)
-        parts = args.parts if args.mode == "stream" else world
+        parts = args.parts if args.mode in ("stream", "first") else world
         name = f"{args.dataset}_{args.mode}_P{parts}_seed{args.data_seed}_{args.dtype}.json"
         (out / name).write_text(json.dumps(report, indent=1))
         best = report.get("best")
