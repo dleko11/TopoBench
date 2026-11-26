@@ -29,7 +29,11 @@ from pathlib import Path
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from torch_geometric.datasets import CoraFull, HeterophilousGraphDataset
+from torch_geometric.datasets import (
+    Coauthor,
+    CoraFull,
+    HeterophilousGraphDataset,
+)
 from torchmetrics.functional.classification import (
     multiclass_accuracy,
     multiclass_auroc,
@@ -63,6 +67,11 @@ DATASETS = {
     ),
     "questions": dict(
         train_prop=0.5, metric="auroc", lr=1e-2, wd=1e-4, hidden=128
+    ),
+    # No full-graph hyperparameters exist for Physics (full graph did not fit);
+    # these are the Cluster-TNN-selected SCN values and its 70% split.
+    "coauthor_physics": dict(
+        train_prop=0.7, metric="accuracy", lr=1e-2, wd=0.0, hidden=32
     ),
 }
 
@@ -121,6 +130,8 @@ def load_dataset(name: str, data_dir: str, feature_dim: int):
     """
     if name == "cora_full":
         data = CoraFull(root=f"{data_dir}/graph/cocitation/CoraFull")[0]
+    elif name == "coauthor_physics":
+        data = Coauthor(root=f"{data_dir}/graph/coauthor", name="Physics")[0]
     else:
         data = HeterophilousGraphDataset(
             root=f"{data_dir}/graph/heterophilic", name=name
@@ -318,6 +329,7 @@ def train(args, runner, model, num_classes, distributed, device) -> dict:
     history, checks = [], []
     best = {"val": float("-inf")}
     bad_checks = 0
+    wall_start = time.perf_counter()
     for epoch in range(1, args.max_epochs + 1):
         model.train()
         if device.type == "cuda":
@@ -349,15 +361,37 @@ def train(args, runner, model, num_classes, distributed, device) -> dict:
         if epoch % args.val_every:
             continue
         model.eval()
+        eval_start = time.perf_counter()
         val, test = evaluate(runner, distributed, spec["metric"], num_classes)
-        checks.append({"epoch": epoch, "val": val, "test": test})
+        eval_seconds = time.perf_counter() - eval_start
+        elapsed = time.perf_counter() - wall_start
+        checks.append(
+            {
+                "epoch": epoch,
+                "val": val,
+                "test": test,
+                "eval_seconds": eval_seconds,
+                "elapsed_seconds": elapsed,
+            }
+        )
         if val > best["val"]:
-            best, bad_checks = {"epoch": epoch, "val": val, "test": test}, 0
+            best = {
+                "epoch": epoch,
+                "val": val,
+                "test": test,
+                "elapsed_seconds": elapsed,
+            }
+            bad_checks = 0
         else:
             bad_checks += 1
             if bad_checks >= args.patience:
                 break
-    return {"history": history, "checks": checks, "best": best}
+    return {
+        "history": history,
+        "checks": checks,
+        "best": best,
+        "train_wall_seconds": time.perf_counter() - wall_start,
+    }
 
 
 def run_check(
@@ -522,7 +556,33 @@ def main() -> None:
         )
         if device.type == "cuda":
             torch.cuda.reset_peak_memory_stats(device)
-        outcome = train(args, runner, model, num_classes, distributed, device)
+        try:
+            outcome = train(
+                args, runner, model, num_classes, distributed, device
+            )
+        except torch.cuda.OutOfMemoryError:
+            if distributed:
+                raise  # torchrun tears the group down; the log records it
+            report = {
+                "mode": args.mode,
+                "world": world,
+                "oom": True,
+                "setup_seconds": setup_seconds,
+                "setup_peak_gpu_bytes": setup_bytes,
+                "peak_before_oom_bytes": torch.cuda.max_memory_allocated(
+                    device
+                ),
+                "gpu_total_bytes": torch.cuda.get_device_properties(
+                    device
+                ).total_memory,
+                "args": vars(args),
+            }
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            name = f"{args.dataset}_{args.mode}_P{world}_seed{args.data_seed}_{args.dtype}.json"
+            (out / name).write_text(json.dumps(report, indent=1))
+            print(f"OOM during training; wrote {out / name}", flush=True)
+            return
         train_peak = (
             torch.cuda.max_memory_allocated(device)
             if device.type == "cuda"
