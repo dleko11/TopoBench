@@ -41,6 +41,7 @@ from torchmetrics.functional.classification import (
 
 from topobench.data.utils.split_utils import random_splitting
 from topobench.distributed.halo import (
+    build_halo_plan,
     canonical_edges,
     partition_nodes,
     vertex_weights,
@@ -56,6 +57,7 @@ from topobench.distributed.scn import (
     build_reference_batch,
     cast_batch,
 )
+from topobench.distributed.stream import StreamedSCN
 
 # Full-graph SCN hyperparameters selected in the paper (Table: optuna_hparams).
 DATASETS = {
@@ -86,7 +88,7 @@ def parse_args() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument(
-        "--mode", choices=["full", "dist", "check"], required=True
+        "--mode", choices=["full", "dist", "check", "stream"], required=True
     )
     parser.add_argument("--dataset", choices=sorted(DATASETS), required=True)
     parser.add_argument("--data-dir", default="datasets")
@@ -107,6 +109,12 @@ def parse_args() -> argparse.Namespace:
         "--feature-dim", type=int, default=0, help="0 keeps all features."
     )
     parser.add_argument("--check-steps", type=int, default=20)
+    parser.add_argument(
+        "--parts",
+        type=int,
+        default=6,
+        help="Parts streamed through one GPU in --mode stream.",
+    )
     parser.add_argument("--out", default="logs/distributed/train")
     return parser.parse_args()
 
@@ -231,6 +239,7 @@ class FullGraph:
             build_reference_batch(x, edge_index, labels), dtype
         ).to(device)
         self.lift_seconds = time.perf_counter() - start
+        self.timings = {"lift_seconds": self.lift_seconds}
         self.model = model
         self.labels = labels.to(device)
         self.code = code.to(device)
@@ -258,11 +267,49 @@ class Distributed:
         self.plan.timings["feature_lift_seconds"] = time.perf_counter() - start
         self.setup_bytes_sent = sum(self.plan.traffic.sent.values())
         self.plan.traffic.reset()
+        self.timings = self.plan.timings
         core = self.plan.shard.core
         self.nodes = core.to(device)
         self.labels = labels[core].to(device)
         self.code = code[core].to(device)
         self.counts = [f.size(0) for f in self.forward.features]
+
+    def __call__(self):
+        return self.forward()
+
+
+class Streamed:
+    """One GPU: every part lifted in succession, input encoder streamed by part."""
+
+    def __init__(
+        self, model, x, edge_index, labels, code, parts, weight, device, dtype
+    ):
+        num_nodes = x.size(0)
+        self.timings = {}
+        start = time.perf_counter()
+        weights = (
+            None
+            if weight == "none"
+            else vertex_weights(edge_index, num_nodes, "cells")
+        )
+        part = partition_nodes(
+            edge_index, num_nodes, parts, "metis", node_weight=weights
+        )
+        self.timings["partition_seconds"] = time.perf_counter() - start
+        start = time.perf_counter()
+        plan = build_halo_plan(edge_index, num_nodes, part)
+        self.timings["lift_seconds"] = time.perf_counter() - start
+        start = time.perf_counter()
+        self.forward = StreamedSCN(model, plan, x, device, dtype)
+        self.timings["feature_lift_seconds"] = time.perf_counter() - start
+        nodes = plan.cells(0)[:, 0]
+        self.nodes = nodes.to(device)
+        self.labels = labels[nodes].to(device)
+        self.code = code[nodes].to(device)
+        self.counts = [plan.num_cells(r) for r in range(3)]
+        self.host_feature_bytes = sum(
+            f.numel() * f.element_size() for f in self.forward.features
+        )
 
     def __call__(self):
         return self.forward()
@@ -544,6 +591,18 @@ def main() -> None:
             runner = Distributed(
                 model, x, edge_index, labels, code, part, device, dtype
             )
+        elif args.mode == "stream":
+            runner = Streamed(
+                model,
+                x,
+                edge_index,
+                labels,
+                code,
+                args.parts,
+                args.node_weight,
+                device,
+                dtype,
+            )
         else:
             runner = FullGraph(
                 model, x, edge_index, labels, code, device, dtype
@@ -600,9 +659,8 @@ def main() -> None:
             ).ru_maxrss,
             "bytes_sent_forward_total": sum(traffic.values()),
             "bytes_sent_setup": runner.setup_bytes_sent if distributed else 0,
-            "timings": runner.plan.timings
-            if distributed
-            else {"lift_seconds": runner.lift_seconds},
+            "timings": runner.timings,
+            "host_feature_bytes": getattr(runner, "host_feature_bytes", 0),
         }
         if distributed:
             gathered = [None] * world
@@ -624,7 +682,8 @@ def main() -> None:
         report["args"] = vars(args)
         out = Path(args.out)
         out.mkdir(parents=True, exist_ok=True)
-        name = f"{args.dataset}_{args.mode}_P{world}_seed{args.data_seed}_{args.dtype}.json"
+        parts = args.parts if args.mode == "stream" else world
+        name = f"{args.dataset}_{args.mode}_P{parts}_seed{args.data_seed}_{args.dtype}.json"
         (out / name).write_text(json.dumps(report, indent=1))
         best = report.get("best")
         print(

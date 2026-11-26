@@ -343,24 +343,29 @@ def scn_forward(
     boundary: dict,
     operators: tuple,
     graph_norm,
+    encode=None,
 ) -> dict:
     """Run SCN's encoder, layers, wrapper and readout on partitioned signals.
 
-    Shared by the in-process simulation and the ``torch.distributed``
-    runtime; they differ only in their boundary operators and ``GraphNorm``.
+    Shared by the in-process simulation, the ``torch.distributed`` runtime
+    and the one-GPU streamed run; they differ only in their boundary
+    operators and in how the input encoder is evaluated.
 
     Parameters
     ----------
     model : SCNNodeClassifier
         Model whose trained modules are reused.
-    features : list[torch.Tensor]
-        Input features per rank.
+    features : list[torch.Tensor] or None
+        Input features per rank (unused when ``encode`` is given).
     boundary : dict
         Boundary operators for ranks 1 and 2, providing ``fold``.
     operators : tuple
         Hodge operators for ranks 0, 1 and 2.
-    graph_norm : callable
+    graph_norm : callable or None
         ``graph_norm(norm_module, x, rank)`` with whole-graph statistics.
+    encode : callable, optional
+        ``encode(rank)`` returning the encoder output for that rank, in
+        place of GraphNorm, Linear, ReLU and dropout on ``features``.
 
     Returns
     -------
@@ -370,9 +375,12 @@ def scn_forward(
     stages = {}
     encoded = []
     for rank in RANKS:
-        encoder = getattr(model.feature_encoder, f"encoder_{rank}")
-        hidden = graph_norm(encoder.BN, features[rank], rank)
-        hidden = encoder.dropout(encoder.relu(encoder.linear(hidden)))
+        if encode is not None:
+            hidden = encode(rank)
+        else:
+            encoder = getattr(model.feature_encoder, f"encoder_{rank}")
+            hidden = graph_norm(encoder.BN, features[rank], rank)
+            hidden = encoder.dropout(encoder.relu(encoder.linear(hidden)))
         encoded.append(hidden)
         stages[f"encoder/x_{rank}"] = hidden
 
