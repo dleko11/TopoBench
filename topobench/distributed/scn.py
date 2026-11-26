@@ -266,8 +266,6 @@ def distributed_stages(
         Stage name to tensor in owner-major row order.
     """
     dtype, device = features[0].dtype, features[0].device
-    counts = [plan.num_cells(rank) for rank in RANKS]
-
     comm.phase = "setup"
     boundary = {
         rank: DistributedBoundaryOperator(
@@ -275,8 +273,43 @@ def distributed_stages(
         )
         for rank in (1, 2)
     }
-    # Same construction as SCN2MatrixFree.forward, including normalization.
-    operators = (
+    operators = hodge_operators(
+        boundary, [plan.num_cells(rank) for rank in RANKS], dtype, device
+    )
+    comm.phase = "forward"
+
+    def graph_norm(norm, x, rank):
+        return distributed_graph_norm(
+            norm, x, plan.offsets[rank], comm, f"encoder{rank}.graphnorm"
+        )
+
+    with torch.set_grad_enabled(grad):
+        return scn_forward(model, features, boundary, operators, graph_norm)
+
+
+def hodge_operators(
+    boundary: dict, counts: list[int], dtype: torch.dtype, device
+) -> tuple[UnsignedHodgeOperator, ...]:
+    """Build SCN's normalized Hodge operators as ``SCN2MatrixFree`` does.
+
+    Parameters
+    ----------
+    boundary : dict
+        Boundary operators for ranks 1 and 2 (any object with ``up``,
+        ``down`` and ``up_diagonal``).
+    counts : list[int]
+        Number of rows per rank the operators act on.
+    dtype : torch.dtype
+        Signal dtype.
+    device : torch.device
+        Signal device.
+
+    Returns
+    -------
+    tuple[UnsignedHodgeOperator, ...]
+        Operators for ranks 0, 1 and 2.
+    """
+    return (
         UnsignedHodgeOperator(
             lower=None,
             upper=boundary[1],
@@ -302,53 +335,74 @@ def distributed_stages(
             normalize=True,
         ),
     )
-    comm.phase = "forward"
 
+
+def scn_forward(
+    model: SCNNodeClassifier,
+    features: list[torch.Tensor],
+    boundary: dict,
+    operators: tuple,
+    graph_norm,
+) -> dict:
+    """Run SCN's encoder, layers, wrapper and readout on partitioned signals.
+
+    Shared by the in-process simulation and the ``torch.distributed``
+    runtime; they differ only in their boundary operators and ``GraphNorm``.
+
+    Parameters
+    ----------
+    model : SCNNodeClassifier
+        Model whose trained modules are reused.
+    features : list[torch.Tensor]
+        Input features per rank.
+    boundary : dict
+        Boundary operators for ranks 1 and 2, providing ``fold``.
+    operators : tuple
+        Hodge operators for ranks 0, 1 and 2.
+    graph_norm : callable
+        ``graph_norm(norm_module, x, rank)`` with whole-graph statistics.
+
+    Returns
+    -------
+    dict
+        Stage name to tensor.
+    """
     stages = {}
-    with torch.set_grad_enabled(grad):
-        encoded = []
-        for rank in RANKS:
-            encoder = getattr(model.feature_encoder, f"encoder_{rank}")
-            hidden = distributed_graph_norm(
-                encoder.BN,
-                features[rank],
-                plan.offsets[rank],
-                comm,
-                f"encoder{rank}.graphnorm",
-            )
-            hidden = encoder.dropout(encoder.relu(encoder.linear(hidden)))
-            encoded.append(hidden)
-            stages[f"encoder/x_{rank}"] = hidden
+    encoded = []
+    for rank in RANKS:
+        encoder = getattr(model.feature_encoder, f"encoder_{rank}")
+        hidden = graph_norm(encoder.BN, features[rank], rank)
+        hidden = encoder.dropout(encoder.relu(encoder.linear(hidden)))
+        encoded.append(hidden)
+        stages[f"encoder/x_{rank}"] = hidden
 
-        wrapper = model.backbone
-        x = list(encoded)
-        for index, layer in enumerate(wrapper.backbone.layers):
-            x = list(layer(*x, operators))
-            for rank in RANKS:
-                stages[f"layer{index}/x_{rank}"] = x[rank]
-        if wrapper.residual_connections:
-            x = [
-                getattr(wrapper, f"ln_{rank}")(x[rank] + encoded[rank])
-                for rank in RANKS
-            ]
+    wrapper = model.backbone
+    x = list(encoded)
+    for index, layer in enumerate(wrapper.backbone.layers):
+        x = list(layer(*x, operators))
         for rank in RANKS:
-            stages[f"backbone/x_{rank}"] = x[rank]
+            stages[f"layer{index}/x_{rank}"] = x[rank]
+    if wrapper.residual_connections:
+        x = [
+            getattr(wrapper, f"ln_{rank}")(x[rank] + encoded[rank])
+            for rank in RANKS
+        ]
+    for rank in RANKS:
+        stages[f"backbone/x_{rank}"] = x[rank]
 
-        readout = model.readout
-        for rank in readout.dimensions:
-            conv = getattr(readout, f"agg_conv_{rank}")
-            if conv.att or conv.aggr_norm or conv.update_func is not None:
-                raise NotImplementedError("Only plain sum convolutions.")
-            aggregated = boundary[rank].fold(torch.mm(x[rank], conv.weight))
-            aggregated = getattr(readout, f"ln_{rank}")(aggregated)
-            x[rank - 1] = getattr(readout, f"projector_{rank}")(
-                torch.cat([aggregated, x[rank - 1]], dim=1)
-            )
-        stages["readout/x_1"] = x[1]
-        stages["readout/x_0"] = x[0]
-        stages["logits"] = readout.compute_logits(
-            x[0], torch.zeros(counts[0], dtype=torch.long, device=device)
+    readout = model.readout
+    for rank in readout.dimensions:
+        conv = getattr(readout, f"agg_conv_{rank}")
+        if conv.att or conv.aggr_norm or conv.update_func is not None:
+            raise NotImplementedError("Only plain sum convolutions.")
+        aggregated = boundary[rank].fold(torch.mm(x[rank], conv.weight))
+        aggregated = getattr(readout, f"ln_{rank}")(aggregated)
+        x[rank - 1] = getattr(readout, f"projector_{rank}")(
+            torch.cat([aggregated, x[rank - 1]], dim=1)
         )
+    stages["readout/x_1"] = x[1]
+    stages["readout/x_0"] = x[0]
+    stages["logits"] = readout.linear(x[0])
     return stages
 
 

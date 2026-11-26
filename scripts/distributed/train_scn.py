@@ -1,0 +1,575 @@
+"""Train SCN full-graph or halo-distributed under the paper's full-graph protocol.
+
+Both modes share the model, initial weights, split, optimizer, schedule and
+early stopping; they differ only in how the forward pass is computed.
+
+Full graph (one GPU, TopoBench clique lifting and real modules):
+    python scripts/distributed/train_scn.py --mode full --dataset cora_full
+
+Halo-distributed (one process per GPU):
+    torchrun --nproc_per_node 4 scripts/distributed/train_scn.py \
+        --mode dist --dataset cora_full
+
+Equivalence check (float64, dropout off; rank 0 also runs the full graph and
+compares logits, gradients and the loss of every training step):
+    torchrun --nproc_per_node 4 scripts/distributed/train_scn.py \
+        --mode check --dataset cora_full
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import json
+import os
+import resource
+import time
+from pathlib import Path
+
+import torch
+import torch.distributed as dist
+import torch.nn.functional as F
+from torch_geometric.datasets import CoraFull, HeterophilousGraphDataset
+from torchmetrics.functional.classification import (
+    multiclass_accuracy,
+    multiclass_auroc,
+)
+
+from topobench.data.utils.split_utils import random_splitting
+from topobench.distributed.halo import (
+    canonical_edges,
+    partition_nodes,
+    vertex_weights,
+)
+from topobench.distributed.runtime import (
+    DistributedSCN,
+    all_reduce_gradients,
+    build_local_plan,
+    gather_rows,
+)
+from topobench.distributed.scn import (
+    SCNNodeClassifier,
+    build_reference_batch,
+    cast_batch,
+)
+
+# Full-graph SCN hyperparameters selected in the paper (Table: optuna_hparams).
+DATASETS = {
+    "cora_full": dict(
+        train_prop=0.7, metric="accuracy", lr=1e-3, wd=1e-3, hidden=128
+    ),
+    "amazon_ratings": dict(
+        train_prop=0.5, metric="accuracy", lr=1e-2, wd=0.0, hidden=64
+    ),
+    "questions": dict(
+        train_prop=0.5, metric="auroc", lr=1e-2, wd=1e-4, hidden=128
+    ),
+}
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments.
+
+    Returns
+    -------
+    argparse.Namespace
+        Parsed arguments.
+    """
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--mode", choices=["full", "dist", "check"], required=True
+    )
+    parser.add_argument("--dataset", choices=sorted(DATASETS), required=True)
+    parser.add_argument("--data-dir", default="datasets")
+    parser.add_argument("--data-seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n-layers", type=int, default=1)
+    parser.add_argument("--proj-dropout", type=float, default=0.3)
+    parser.add_argument("--max-epochs", type=int, default=300)
+    parser.add_argument("--val-every", type=int, default=5)
+    parser.add_argument("--patience", type=int, default=5)
+    parser.add_argument(
+        "--node-weight", choices=["none", "cells"], default="cells"
+    )
+    parser.add_argument(
+        "--dtype", choices=["float32", "float64"], default="float32"
+    )
+    parser.add_argument(
+        "--feature-dim", type=int, default=0, help="0 keeps all features."
+    )
+    parser.add_argument("--check-steps", type=int, default=20)
+    parser.add_argument("--out", default="logs/distributed/train")
+    return parser.parse_args()
+
+
+def load_dataset(name: str, data_dir: str, feature_dim: int):
+    """Load a dataset's features, symmetric canonical edges and labels.
+
+    Parameters
+    ----------
+    name : str
+        Dataset name.
+    data_dir : str
+        Root data directory.
+    feature_dim : int
+        Keep the most frequent feature columns, or 0 for all.
+
+    Returns
+    -------
+    tuple
+        Features, symmetric edge index, labels.
+    """
+    if name == "cora_full":
+        data = CoraFull(root=f"{data_dir}/graph/cocitation/CoraFull")[0]
+    else:
+        data = HeterophilousGraphDataset(
+            root=f"{data_dir}/graph/heterophilic", name=name
+        )[0]
+    x = data.x.float()
+    if feature_dim:
+        columns = torch.argsort((x != 0).sum(0), descending=True)[:feature_dim]
+        x = x[:, columns.sort().values]
+    edges = canonical_edges(data.edge_index, data.num_nodes)
+    return x, torch.cat([edges, edges.flip(0)], dim=1), data.y.long()
+
+
+def split_masks(
+    labels, name: str, data_dir: str, data_seed: int, train_prop: float
+):
+    """Return TopoBench's random split as a node-level code (0/1/2).
+
+    Parameters
+    ----------
+    labels : torch.Tensor
+        Node labels.
+    name : str
+        Dataset name, used for the split directory.
+    data_dir : str
+        Root data directory.
+    data_seed : int
+        Split fold, as ``dataset.split_params.data_seed``.
+    train_prop : float
+        Training proportion.
+
+    Returns
+    -------
+    torch.Tensor
+        0 for train, 1 for validation, 2 for test.
+    """
+    split = random_splitting(
+        labels,
+        {
+            "data_seed": data_seed,
+            "data_split_dir": f"{data_dir}/data_splits/{name}",
+            "train_prop": train_prop,
+        },
+    )
+    code = torch.full((labels.size(0),), -1, dtype=torch.long)
+    for value, key in enumerate(("train", "valid", "test")):
+        code[torch.as_tensor(split[key])] = value
+    return code
+
+
+def build_model(
+    args, in_channels: int, num_classes: int, dtype
+) -> SCNNodeClassifier:
+    """Build the SCN with identical initial weights in every mode and process.
+
+    Returns
+    -------
+    SCNNodeClassifier
+        Model in the requested dtype.
+    """
+    torch.manual_seed(args.seed)
+    model = SCNNodeClassifier(
+        in_channels,
+        DATASETS[args.dataset]["hidden"],
+        num_classes,
+        args.n_layers,
+    )
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.p = args.proj_dropout
+    return model.to(dtype)
+
+
+def metric_value(name: str, logits, labels, num_classes: int) -> float:
+    """Compute the paper's metric (TopoBench evaluator settings).
+
+    Returns
+    -------
+    float
+        Accuracy, or macro AUROC for Questions.
+    """
+    logits, labels = logits.float().cpu(), labels.cpu()
+    if name == "auroc":
+        return float(
+            multiclass_auroc(logits, labels, num_classes, average="macro")
+        )
+    return float(
+        multiclass_accuracy(logits, labels, num_classes, average="micro")
+    )
+
+
+class FullGraph:
+    """Full-graph forward: TopoBench's lifting and the real SCN modules."""
+
+    def __init__(self, model, x, edge_index, labels, code, device, dtype):
+        start = time.perf_counter()
+        self.batch = cast_batch(
+            build_reference_batch(x, edge_index, labels), dtype
+        ).to(device)
+        self.lift_seconds = time.perf_counter() - start
+        self.model = model
+        self.labels = labels.to(device)
+        self.code = code.to(device)
+        self.counts = [int(self.batch[f"x_{r}"].size(0)) for r in range(3)]
+
+    def __call__(self):
+        # Shallow copy: the encoder swaps in new tensors, the inputs stay intact
+        # and are not duplicated on the GPU.
+        return self.model(copy.copy(self.batch))
+
+
+class Distributed:
+    """This process's share of the halo-distributed forward."""
+
+    def __init__(
+        self, model, x, edge_index, labels, code, part, device, dtype
+    ):
+        num_nodes = x.size(0)
+        edges = canonical_edges(edge_index, num_nodes)
+        self.plan = build_local_plan(edges, part, num_nodes, device, dtype)
+        start = time.perf_counter()
+        self.forward = DistributedSCN(
+            model, self.plan, x, num_nodes, device, dtype
+        )
+        self.plan.timings["feature_lift_seconds"] = time.perf_counter() - start
+        self.setup_bytes_sent = sum(self.plan.traffic.sent.values())
+        self.plan.traffic.reset()
+        core = self.plan.shard.core
+        self.nodes = core.to(device)
+        self.labels = labels[core].to(device)
+        self.code = code[core].to(device)
+        self.counts = [f.size(0) for f in self.forward.features]
+
+    def __call__(self):
+        return self.forward()
+
+
+def reduce_sum(value: torch.Tensor, distributed: bool) -> torch.Tensor:
+    """Sum a tensor across processes when distributed.
+
+    Returns
+    -------
+    torch.Tensor
+        Summed value.
+    """
+    if distributed:
+        value = value.clone()
+        dist.all_reduce(value)
+    return value
+
+
+def evaluate(
+    runner, distributed: bool, metric: str, num_classes: int
+) -> tuple:
+    """Return validation and test metrics.
+
+    Returns
+    -------
+    tuple[float, float]
+        Validation and test metric.
+    """
+    with torch.no_grad():
+        logits = runner()["logits"]
+    out = []
+    for split in (1, 2):
+        mask = runner.code == split
+        chunk_logits, chunk_labels = logits[mask], runner.labels[mask]
+        if distributed:
+            chunk_logits, chunk_labels = (
+                gather_rows(chunk_logits),
+                gather_rows(chunk_labels),
+            )
+        out.append(
+            metric_value(metric, chunk_logits, chunk_labels, num_classes)
+        )
+    return tuple(out)
+
+
+def train(args, runner, model, num_classes, distributed, device) -> dict:
+    """Run the paper's full-graph training protocol.
+
+    Returns
+    -------
+    dict
+        History, best checkpoint metrics and timings.
+    """
+    spec = DATASETS[args.dataset]
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=spec["lr"], weight_decay=spec["wd"]
+    )
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=50, gamma=0.5
+    )
+    train_mask = runner.code == 0
+    train_count = reduce_sum(train_mask.sum(), distributed).item()
+    history, checks = [], []
+    best = {"val": float("-inf")}
+    bad_checks = 0
+    for epoch in range(1, args.max_epochs + 1):
+        model.train()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        start = time.perf_counter()
+        logits = runner()["logits"]
+        loss = (
+            F.cross_entropy(
+                logits[train_mask], runner.labels[train_mask], reduction="sum"
+            )
+            / train_count
+        )
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        if distributed:
+            all_reduce_gradients(model)
+        optimizer.step()
+        scheduler.step()
+        if device.type == "cuda":
+            torch.cuda.synchronize(device)
+        seconds = time.perf_counter() - start
+        history.append(
+            {
+                "epoch": epoch,
+                "loss": reduce_sum(loss.detach(), distributed).item(),
+                "seconds": seconds,
+            }
+        )
+        if epoch % args.val_every:
+            continue
+        model.eval()
+        val, test = evaluate(runner, distributed, spec["metric"], num_classes)
+        checks.append({"epoch": epoch, "val": val, "test": test})
+        if val > best["val"]:
+            best, bad_checks = {"epoch": epoch, "val": val, "test": test}, 0
+        else:
+            bad_checks += 1
+            if bad_checks >= args.patience:
+                break
+    return {"history": history, "checks": checks, "best": best}
+
+
+def run_check(
+    args, x, edge_index, labels, code, part, num_classes, device
+) -> dict:
+    """Compare the distributed run with the full graph step by step (rank 0).
+
+    Returns
+    -------
+    dict
+        Max differences of logits, gradients and per-step losses.
+    """
+    dtype = torch.float64
+    args.proj_dropout = 0.0
+    me = dist.get_rank()
+    model = build_model(args, x.size(1), num_classes, dtype).to(device)
+    runner = Distributed(
+        model, x, edge_index, labels, code, part, device, dtype
+    )
+    reference = None
+    if me == 0:
+        full_model = build_model(args, x.size(1), num_classes, dtype).to(
+            device
+        )
+        reference = FullGraph(
+            full_model, x, edge_index, labels, code, device, dtype
+        )
+        full_opt = torch.optim.Adam(
+            full_model.parameters(), lr=DATASETS[args.dataset]["lr"]
+        )
+        full_train = reference.code == 0
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=DATASETS[args.dataset]["lr"]
+    )
+    train_mask = runner.code == 0
+    train_count = reduce_sum(train_mask.sum(), True).item()
+    result = {"steps": []}
+    for step in range(args.check_steps):
+        logits = runner()["logits"]
+        loss = (
+            F.cross_entropy(
+                logits[train_mask], runner.labels[train_mask], reduction="sum"
+            )
+            / train_count
+        )
+        optimizer.zero_grad()
+        loss.backward()
+        all_reduce_gradients(model)
+        nodes, node_logits = (
+            gather_rows(runner.nodes),
+            gather_rows(logits.detach()),
+        )
+        dist_loss = reduce_sum(loss.detach(), True).item()
+        if me == 0:
+            full_logits = reference()["logits"]
+            full_loss = F.cross_entropy(
+                full_logits[full_train], reference.labels[full_train]
+            )
+            full_opt.zero_grad()
+            full_loss.backward()
+            row = {
+                "step": step,
+                "loss_full": full_loss.item(),
+                "loss_dist": dist_loss,
+                "max_logit_diff": float(
+                    (full_logits.detach()[nodes] - node_logits).abs().max()
+                ),
+                "max_grad_diff": max(
+                    float((a.grad - b.grad).abs().max())
+                    for a, b in zip(
+                        full_model.parameters(),
+                        model.parameters(),
+                        strict=True,
+                    )
+                ),
+            }
+            result["steps"].append(row)
+            print(row, flush=True)
+            full_opt.step()
+        optimizer.step()
+    return result
+
+
+def main() -> None:
+    """Entry point."""
+    args = parse_args()
+    distributed = args.mode in ("dist", "check")
+    if distributed:
+        backend = "nccl" if torch.cuda.is_available() else "gloo"
+        dist.init_process_group(backend)
+        me, world = dist.get_rank(), dist.get_world_size()
+        local = int(os.environ.get("LOCAL_RANK", 0))
+    else:
+        me, world, local = 0, 1, 0
+    device = torch.device(
+        f"cuda:{local}" if torch.cuda.is_available() else "cpu"
+    )
+    if device.type == "cuda":
+        torch.cuda.set_device(device)
+    dtype = getattr(torch, args.dtype)
+    spec = DATASETS[args.dataset]
+
+    if distributed and me != 0:
+        dist.barrier()  # let rank 0 download, process and write split files
+    x, edge_index, labels = load_dataset(
+        args.dataset, args.data_dir, args.feature_dim
+    )
+    code = split_masks(
+        labels, args.dataset, args.data_dir, args.data_seed, spec["train_prop"]
+    )
+    if distributed and me == 0:
+        dist.barrier()
+    num_classes = int(labels.max()) + 1
+    num_nodes = x.size(0)
+
+    part = None
+    partition_seconds = 0.0
+    if distributed:
+        part = torch.empty(num_nodes, dtype=torch.long, device=device)
+        if me == 0:
+            start = time.perf_counter()
+            weights = (
+                None
+                if args.node_weight == "none"
+                else vertex_weights(edge_index, num_nodes, "cells")
+            )
+            part.copy_(
+                partition_nodes(
+                    edge_index, num_nodes, world, "metis", node_weight=weights
+                )
+            )
+            partition_seconds = time.perf_counter() - start
+        dist.broadcast(part, src=0)
+        part = part.cpu()
+
+    if args.mode == "check":
+        result = run_check(
+            args, x, edge_index, labels, code, part, num_classes, device
+        )
+        report = {"mode": "check", "world": world, **result}
+    else:
+        model = build_model(args, x.size(1), num_classes, dtype).to(device)
+        torch.manual_seed(args.seed + 1000 * me)  # dropout stream per process
+        setup_start = time.perf_counter()
+        if distributed:
+            runner = Distributed(
+                model, x, edge_index, labels, code, part, device, dtype
+            )
+        else:
+            runner = FullGraph(
+                model, x, edge_index, labels, code, device, dtype
+            )
+        setup_seconds = time.perf_counter() - setup_start
+        setup_bytes = (
+            torch.cuda.max_memory_allocated(device)
+            if device.type == "cuda"
+            else 0
+        )
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
+        outcome = train(args, runner, model, num_classes, distributed, device)
+        train_peak = (
+            torch.cuda.max_memory_allocated(device)
+            if device.type == "cuda"
+            else 0
+        )
+        traffic = runner.plan.traffic.sent if distributed else {}
+        local = {
+            "rank": me,
+            "cells": runner.counts,
+            "setup_seconds": setup_seconds,
+            "setup_peak_gpu_bytes": setup_bytes,
+            "train_peak_gpu_bytes": train_peak,
+            "cpu_max_rss_kb": resource.getrusage(
+                resource.RUSAGE_SELF
+            ).ru_maxrss,
+            "bytes_sent_forward_total": sum(traffic.values()),
+            "bytes_sent_setup": runner.setup_bytes_sent if distributed else 0,
+            "timings": runner.plan.timings
+            if distributed
+            else {"lift_seconds": runner.lift_seconds},
+        }
+        if distributed:
+            gathered = [None] * world
+            dist.all_gather_object(gathered, local)
+        else:
+            gathered = [local]
+        epochs = outcome["history"]
+        report = {
+            "mode": args.mode,
+            "world": world,
+            "partition_seconds": partition_seconds,
+            "num_forward_calls": len(epochs) + len(outcome["checks"]),
+            "processes": gathered,
+            **outcome,
+            "mean_epoch_seconds": sum(e["seconds"] for e in epochs[1:])
+            / max(len(epochs) - 1, 1),
+        }
+    if me == 0:
+        report["args"] = vars(args)
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        name = f"{args.dataset}_{args.mode}_P{world}_seed{args.data_seed}_{args.dtype}.json"
+        (out / name).write_text(json.dumps(report, indent=1))
+        best = report.get("best")
+        print(
+            f"wrote {out / name}" + (f" best={best}" if best else ""),
+            flush=True,
+        )
+    if distributed:
+        dist.destroy_process_group()
+
+
+if __name__ == "__main__":
+    main()

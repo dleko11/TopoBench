@@ -610,26 +610,59 @@ def lift_input_features(
     list[torch.Tensor]
         Owner-major float32 features per rank.
     """
+    per_shard = [
+        lift_shard_features(shard, x_0, plan.num_nodes, chunk_size)
+        for shard in plan.shards
+    ]
+    return [
+        torch.cat([features[rank] for features in per_shard])
+        for rank in range(plan.complex_dim + 1)
+    ]
+
+
+def lift_shard_features(
+    shard: WorkerShard,
+    x_0: torch.Tensor,
+    num_nodes: int,
+    chunk_size: int = 8192,
+) -> list[torch.Tensor]:
+    """Lift node features to one worker's owned cells (see ``lift_input_features``).
+
+    Parameters
+    ----------
+    shard : WorkerShard
+        The worker's owned cells.
+    x_0 : torch.Tensor
+        Node features; only core and halo rows are read.
+    num_nodes : int
+        Number of graph nodes.
+    chunk_size : int, optional
+        Rows processed at a time, to bound temporary memory.
+
+    Returns
+    -------
+    list[torch.Tensor]
+        Float32 features of the owned cells, per rank.
+    """
     x_0 = x_0.float()
-    lifted = [[] for _ in range(plan.complex_dim + 1)]
-    for shard in plan.shards:
-        local = torch.zeros(plan.num_nodes, dtype=torch.bool)
-        local[shard.core] = True
-        local[shard.halo] = True
-        for rank, cells in enumerate(shard.owned):
-            if not bool(local[cells].all()):
-                raise RuntimeError(
-                    f"Worker {shard.worker} needs features outside its halo."
-                )
-            out = torch.empty((cells.size(0), x_0.size(1)), dtype=x_0.dtype)
-            for start in range(0, cells.size(0), chunk_size):
-                block = cells[start : start + chunk_size]
-                values = x_0[block[:, 0]].clone()
-                for column in range(1, block.size(1)):
-                    values += x_0[block[:, column]]
-                out[start : start + chunk_size] = values * math.factorial(rank)
-            lifted[rank].append(out)
-    return [torch.cat(blocks) for blocks in lifted]
+    local = torch.zeros(num_nodes, dtype=torch.bool)
+    local[shard.core] = True
+    local[shard.halo] = True
+    lifted = []
+    for rank, cells in enumerate(shard.owned):
+        if not bool(local[cells].all()):
+            raise RuntimeError(
+                f"Worker {shard.worker} needs features outside its halo."
+            )
+        out = torch.empty((cells.size(0), x_0.size(1)), dtype=x_0.dtype)
+        for start in range(0, cells.size(0), chunk_size):
+            block = cells[start : start + chunk_size]
+            values = x_0[block[:, 0]].clone()
+            for column in range(1, block.size(1)):
+                values += x_0[block[:, column]]
+            out[start : start + chunk_size] = values * math.factorial(rank)
+        lifted.append(out)
+    return lifted
 
 
 def plan_statistics(plan: HaloPlan) -> dict[str, float]:
