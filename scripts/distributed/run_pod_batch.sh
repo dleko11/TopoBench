@@ -32,6 +32,8 @@ distributed() {  # gpus nproc port dataset seed
 for dataset in "${DATASETS[@]}"; do
     echo "$(date +%T) seed 0 alone: $dataset"
     full 0 "$dataset" 0
+    # Same distributed code on one GPU: the like-for-like memory baseline.
+    distributed 0 1 29499 "$dataset" 0
     distributed 0,1 2 29500 "$dataset" 0
     distributed 0,1,2,3 4 29501 "$dataset" 0
 done
