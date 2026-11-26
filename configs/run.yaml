@@ -49,6 +49,7 @@ test_inference:
   ensemble_average: logits
   ensemble_shuffle: true
   ensemble_seed: ${seed}
+  ensemble_checkpoint_dir: null
 
 # simply provide checkpoint path to resume training
 ckpt_path: null

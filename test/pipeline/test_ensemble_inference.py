@@ -1,8 +1,10 @@
 """Regression tests for ensemble device placement and aggregation."""
 
+import random
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 import torch
 from lightning import LightningModule
@@ -278,3 +280,146 @@ def test_checkpoint_ensemble_restores_device_after_validation(
         "Completed ensemble test inference",
     ]:
         assert message in caplog.text
+
+
+@pytest.fixture
+def resumable_ensemble(tmp_path):
+    cfg = OmegaConf.create({
+        "seed": 23,
+        "dataset": {"split_params": {"data_seed": 0}},
+        "test_inference": {
+            "ensemble_runs": 3,
+            "ensemble_seed": 7,
+            "ensemble_shuffle": True,
+            "ensemble_checkpoint_dir": str(tmp_path / "passes"),
+        },
+    })
+    calls = []
+    failure = {"enabled": False}
+
+    def inference_dataloader(*, split, shuffle, seed, cover_parts):
+        assert (split, shuffle, cover_parts) == ("test", True, "split")
+        calls.append(seed)
+
+        def batches():
+            for index, nid in enumerate((9, 1)):
+                if failure["enabled"] and seed == 8 and index == 1:
+                    raise RuntimeError("simulated interruption during a pass")
+                noise = random.random() + np.random.random() + torch.rand(()).item()
+                x = torch.tensor([[3.0, noise] if index == 0 else [noise, 3.0]])
+                yield Data(
+                    x=x,
+                    y=torch.tensor([index]),
+                    test_mask=torch.tensor([True]),
+                    global_nid=torch.tensor([nid]),
+                )
+
+        return batches()
+
+    datamodule = SimpleNamespace(
+        handle={"config_hash": 123, "split_hash": "split0", "num_parts": 4},
+        q_test=2,
+        transform_config=None,
+        inference_dataloader=inference_dataloader,
+    )
+    return cfg, datamodule, calls, failure
+
+
+@pytest.mark.parametrize(
+    "device",
+    [
+        torch.device("cpu"),
+        pytest.param(
+            torch.device("cuda:0"),
+            marks=pytest.mark.skipif(
+                not torch.cuda.is_available(), reason="CUDA unavailable"
+            ),
+        ),
+    ],
+)
+def test_ensemble_resume_matches_uninterrupted(
+    resumable_ensemble, monkeypatch, device
+):
+    cfg, datamodule, calls, failure = resumable_ensemble
+    compute = Mock(wraps=pipeline._compute_ensemble_metrics)
+    monkeypatch.setattr(pipeline, "_compute_ensemble_metrics", compute)
+    uninterrupted_cfg = OmegaConf.create(OmegaConf.to_container(cfg))
+    uninterrupted_cfg.test_inference.ensemble_checkpoint_dir = None
+    pipeline.L.seed_everything(cfg.seed, workers=True)
+    reference = pipeline._run_ensemble_test_inference(
+        checkpoint_model=EnsembleModel(), cfg=uninterrupted_cfg,
+        datamodule=datamodule, device=device,
+    )
+    expected_logits = compute.call_args.kwargs["logits"].clone()
+
+    pipeline.L.seed_everything(cfg.seed, workers=True)
+    failure["enabled"] = True
+    with pytest.raises(RuntimeError, match="simulated interruption"):
+        pipeline._run_ensemble_test_inference(
+            checkpoint_model=EnsembleModel(), cfg=cfg,
+            datamodule=datamodule, device=device,
+        )
+    directory = pipeline.Path(cfg.test_inference.ensemble_checkpoint_dir)
+    assert [path.name for path in directory.glob("*.pt")] == ["pass_000.pt"]
+    (directory / "pass_001.pt.tmp").write_bytes(b"interrupted write")
+
+    calls.clear()
+    failure["enabled"] = False
+    pipeline.L.seed_everything(999, workers=True)
+    actual = pipeline._run_ensemble_test_inference(
+        checkpoint_model=EnsembleModel(), cfg=cfg,
+        datamodule=datamodule, device=device,
+    )
+    assert calls == [8, 9]
+    assert len(list(directory.glob("*.pt"))) == 3
+    assert not list(directory.glob("*.tmp"))
+    torch.testing.assert_close(
+        compute.call_args.kwargs["logits"], expected_logits, rtol=0, atol=0
+    )
+    for key in reference:
+        torch.testing.assert_close(
+            torch.as_tensor(actual[key]), torch.as_tensor(reference[key]),
+            rtol=0, atol=0,
+        )
+
+    calls.clear()
+    complete = pipeline._run_ensemble_test_inference(
+        checkpoint_model=EnsembleModel(), cfg=cfg,
+        datamodule=datamodule, device=device,
+    )
+    assert calls == []
+    torch.testing.assert_close(
+        torch.as_tensor(complete["loss"]), torch.as_tensor(reference["loss"]),
+        rtol=0, atol=0,
+    )
+
+
+@pytest.mark.parametrize(
+    "change", ["weights", "seed", "shuffle", "q", "partition", "transforms"]
+)
+def test_ensemble_resume_rejects_mismatched_identity(resumable_ensemble, change):
+    cfg, datamodule, calls, _ = resumable_ensemble
+    model = EnsembleModel()
+    pipeline._run_ensemble_test_inference(
+        checkpoint_model=model, cfg=cfg,
+        datamodule=datamodule, device=torch.device("cpu"),
+    )
+    calls.clear()
+    if change == "weights":
+        model.weight.data.add_(1)
+    elif change == "seed":
+        cfg.test_inference.ensemble_seed += 1
+    elif change == "shuffle":
+        cfg.test_inference.ensemble_shuffle = False
+    elif change == "q":
+        datamodule.q_test += 1
+    elif change == "partition":
+        datamodule.handle["split_hash"] = "different"
+    elif change == "transforms":
+        datamodule.transform_config = {"lifting": "different"}
+    with pytest.raises(ValueError, match="Ensemble checkpoint mismatch"):
+        pipeline._run_ensemble_test_inference(
+            checkpoint_model=model, cfg=cfg,
+            datamodule=datamodule, device=torch.device("cpu"),
+        )
+    assert calls == []

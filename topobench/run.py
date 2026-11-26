@@ -1,5 +1,8 @@
 """Main entry point for training and testing models."""
 
+import hashlib
+import json
+import os
 import random
 from pathlib import Path
 from typing import Any
@@ -673,7 +676,7 @@ def _run_ensemble_test_inference(
     datamodule: Any,
     device: torch.device,
 ) -> dict[str, Any]:
-    """Run shuffled batched inference repeatedly and average logits.
+    """Run shuffled inference, optionally resuming completed passes from disk.
 
     Parameters
     ----------
@@ -709,6 +712,39 @@ def _run_ensemble_test_inference(
         inference_cfg.get("ensemble_seed", cfg.get("seed", 42))
     )
 
+    checkpoint_dir = inference_cfg.get("ensemble_checkpoint_dir")
+    fingerprint = None
+    if checkpoint_dir is not None:
+        checkpoint_dir = Path(checkpoint_dir)
+        settings = OmegaConf.create({
+            "format_version": 1,
+            "seed": cfg.get("seed"),
+            "model": cfg.get("model"),
+            "dataset": cfg.get("dataset"),
+            "transforms": cfg.get("transforms"),
+            "ensemble_runs": ensemble_runs,
+            "ensemble_seed": ensemble_seed,
+            "ensemble_shuffle": ensemble_shuffle,
+            "ensemble_average": average,
+            "partition": {
+                key: datamodule.handle.get(key)
+                for key in ("config_hash", "split_hash", "num_parts")
+            },
+            "q_test": datamodule.q_test,
+            "transform_config": datamodule.transform_config,
+        })
+        digest = hashlib.sha256(json.dumps(
+            OmegaConf.to_container(settings, resolve=True), sort_keys=True
+        ).encode())
+        for name, tensor in checkpoint_model.state_dict().items():
+            tensor = tensor.detach().cpu().contiguous()
+            digest.update(json.dumps(
+                [name, str(tensor.dtype), list(tensor.shape)]
+            ).encode())
+            digest.update(tensor.reshape(-1).view(torch.uint8).numpy().tobytes())
+        fingerprint = digest.hexdigest()
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+
     logit_chunks: list[torch.Tensor] = []
     label_chunks: list[torch.Tensor] = []
     nid_chunks: list[torch.Tensor] = []
@@ -722,6 +758,39 @@ def _run_ensemble_test_inference(
     try:
         with torch.inference_mode():
             for run_idx in range(ensemble_runs):
+                pass_path = (
+                    checkpoint_dir / f"pass_{run_idx:03d}.pt"
+                    if checkpoint_dir is not None else None
+                )
+                if pass_path is not None and pass_path.exists():
+                    saved = torch.load(
+                        pass_path, map_location="cpu", weights_only=True
+                    )
+                    if (saved["fingerprint"] != fingerprint
+                            or saved["run_idx"] != run_idx):
+                        raise ValueError(
+                            f"Ensemble checkpoint mismatch: {pass_path}. "
+                            "Use a new directory for different weights/settings."
+                        )
+                    logit_chunks.append(saved["logits"])
+                    label_chunks.append(saved["labels"])
+                    nid_chunks.append(saved["global_nid"])
+                    torch.set_rng_state(saved["torch_rng"])
+                    random.setstate(saved["python_rng"])
+                    np_state = saved["numpy_rng"]
+                    np.random.set_state((
+                        np_state[0], np.array(np_state[1], dtype=np.uint32),
+                        *np_state[2:],
+                    ))
+                    if device.type == "cuda" and saved["cuda_rng"] is not None:
+                        torch.cuda.set_rng_state(saved["cuda_rng"], device)
+                    log.info(
+                        f"Restored ensemble pass {run_idx + 1}/{ensemble_runs} "
+                        f"from {pass_path}."
+                    )
+                    del saved
+                    continue
+                start = len(logit_chunks)
                 loader = datamodule.inference_dataloader(
                     split="test",
                     shuffle=ensemble_shuffle,
@@ -755,6 +824,41 @@ def _run_ensemble_test_inference(
                     logit_chunks.append(logits[mask].detach().cpu())
                     label_chunks.append(labels[mask].detach().cpu())
                     nid_chunks.append(batch.global_nid[mask].detach().cpu())
+                if pass_path is not None:
+                    pass_logits, pass_labels, pass_nids = (
+                        _average_ensemble_logits_by_global_nid(
+                            logit_chunks=logit_chunks[start:],
+                            label_chunks=label_chunks[start:],
+                            nid_chunks=nid_chunks[start:],
+                            expected_runs=1,
+                        )
+                    )
+                    logit_chunks[start:] = [pass_logits]
+                    label_chunks[start:] = [pass_labels]
+                    nid_chunks[start:] = [pass_nids]
+                    np_state = np.random.get_state()
+                    saved = {
+                        "fingerprint": fingerprint,
+                        "run_idx": run_idx,
+                        "logits": pass_logits,
+                        "labels": pass_labels,
+                        "global_nid": pass_nids,
+                        "torch_rng": torch.get_rng_state(),
+                        "python_rng": random.getstate(),
+                        "numpy_rng": (
+                            np_state[0], np_state[1].tolist(), *np_state[2:]
+                        ),
+                        "cuda_rng": torch.cuda.get_rng_state(device)
+                        if device.type == "cuda" else None,
+                    }
+                    temporary_path = pass_path.with_suffix(".pt.tmp")
+                    with temporary_path.open("wb") as stream:
+                        torch.save(saved, stream)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    temporary_path.replace(pass_path)
+                    del saved
+                    log.info(f"Saved ensemble pass to {pass_path}.")
                 log.info(
                     f"Completed ensemble pass {run_idx + 1}/{ensemble_runs}."
                 )
