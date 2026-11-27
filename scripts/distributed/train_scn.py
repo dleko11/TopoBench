@@ -33,10 +33,12 @@ from torch_geometric.datasets import (
     Coauthor,
     CoraFull,
     HeterophilousGraphDataset,
+    Yelp,
 )
 from torchmetrics.functional.classification import (
     multiclass_accuracy,
     multiclass_auroc,
+    multilabel_f1_score,
 )
 
 from topobench.data.utils.split_utils import random_splitting
@@ -76,6 +78,17 @@ DATASETS = {
     "coauthor_physics": dict(
         train_prop=0.7, metric="accuracy", lr=1e-2, wd=0.0, hidden=32
     ),
+    # Inductive GraphSAINT split; SCN values from the Cluster-TNN Optuna
+    # search (optuna_inductive_partitioning_yelp_split_fixed_inductive).
+    "yelp": dict(
+        split="fixed",
+        inductive=True,
+        multilabel=True,
+        metric="f1_micro",
+        lr=1e-3,
+        wd=0.0,
+        hidden=128,
+    ),
 }
 
 
@@ -113,6 +126,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--check-steps", type=int, default=20)
     parser.add_argument(
+        "--encoder-first",
+        action="store_true",
+        help="Encode inputs from node features in --mode dist/check.",
+    )
+    parser.add_argument(
         "--parts",
         type=int,
         default=6,
@@ -137,12 +155,19 @@ def load_dataset(name: str, data_dir: str, feature_dim: int):
     Returns
     -------
     tuple
-        Features, symmetric edge index, labels.
+        Features, symmetric edge index, labels, and the fixed split code
+        (0/1/2) when the dataset ships one, else ``None``.
     """
+    fixed = None
     if name == "cora_full":
         data = CoraFull(root=f"{data_dir}/graph/cocitation/CoraFull")[0]
     elif name == "coauthor_physics":
         data = Coauthor(root=f"{data_dir}/graph/coauthor", name="Physics")[0]
+    elif name == "yelp":
+        data = Yelp(root=f"{data_dir}/graph/GraphSAINT/Yelp")[0]
+        fixed = torch.full((data.num_nodes,), -1, dtype=torch.long)
+        for value, key in enumerate(("train_mask", "val_mask", "test_mask")):
+            fixed[data[key]] = value
     else:
         data = HeterophilousGraphDataset(
             root=f"{data_dir}/graph/heterophilic", name=name
@@ -152,7 +177,10 @@ def load_dataset(name: str, data_dir: str, feature_dim: int):
         columns = torch.argsort((x != 0).sum(0), descending=True)[:feature_dim]
         x = x[:, columns.sort().values]
     edges = canonical_edges(data.edge_index, data.num_nodes)
-    return x, torch.cat([edges, edges.flip(0)], dim=1), data.y.long()
+    labels = (
+        data.y.float() if DATASETS[name].get("multilabel") else data.y.long()
+    )
+    return x, torch.cat([edges, edges.flip(0)], dim=1), labels, fixed
 
 
 def split_masks(
@@ -224,6 +252,15 @@ def metric_value(name: str, logits, labels, num_classes: int) -> float:
         Accuracy, or macro AUROC for Questions.
     """
     logits, labels = logits.float().cpu(), labels.cpu()
+    if name == "f1_micro":  # TopoBench: multilabel F1 on sigmoid outputs
+        return float(
+            multilabel_f1_score(
+                logits.sigmoid(),
+                labels.long(),
+                num_labels=num_classes,
+                average="micro",
+            )
+        )
     if name == "auroc":
         return float(
             multiclass_auroc(logits, labels, num_classes, average="macro")
@@ -258,16 +295,36 @@ class Distributed:
     """This process's share of the halo-distributed forward."""
 
     def __init__(
-        self, model, x, edge_index, labels, code, part, device, dtype
+        self,
+        model,
+        x,
+        edge_index,
+        labels,
+        code,
+        part,
+        device,
+        dtype,
+        encoder_first=False,
     ):
         num_nodes = x.size(0)
         edges = canonical_edges(edge_index, num_nodes)
         self.plan = build_local_plan(edges, part, num_nodes, device, dtype)
         start = time.perf_counter()
         self.forward = DistributedSCN(
-            model, self.plan, x, num_nodes, device, dtype
+            model,
+            self.plan,
+            x,
+            num_nodes,
+            device,
+            dtype,
+            encoder_first=encoder_first,
         )
-        self.plan.timings["feature_lift_seconds"] = time.perf_counter() - start
+        key = (
+            "encoder_setup_seconds"
+            if encoder_first
+            else "feature_lift_seconds"
+        )
+        self.plan.timings[key] = time.perf_counter() - start
         self.setup_bytes_sent = sum(self.plan.traffic.sent.values())
         self.plan.traffic.reset()
         self.timings = self.plan.timings
@@ -275,7 +332,7 @@ class Distributed:
         self.nodes = core.to(device)
         self.labels = labels[core].to(device)
         self.code = code[core].to(device)
-        self.counts = [f.size(0) for f in self.forward.features]
+        self.counts = [cells.size(0) for cells in self.plan.shard.owned]
 
     def __call__(self):
         return self.forward()
@@ -376,8 +433,33 @@ def evaluate(
     return tuple(out)
 
 
-def train(args, runner, model, num_classes, distributed, device) -> dict:
+def supervised_loss(logits, labels, mask, count, multilabel) -> torch.Tensor:
+    """Mean training loss over all processes' supervised rows.
+
+    Cross-entropy per node, or binary cross-entropy per node and label
+    (TopoBench's ``BCE`` for multilabel classification), summed locally and
+    divided by the global count, so summed gradients are the full-graph ones.
+
+    Returns
+    -------
+    torch.Tensor
+        This process's share of the global mean loss.
+    """
+    if multilabel:
+        total = F.binary_cross_entropy_with_logits(
+            logits[mask], labels[mask], reduction="sum"
+        )
+        return total / (count * labels.size(1))
+    return F.cross_entropy(logits[mask], labels[mask], reduction="sum") / count
+
+
+def train(
+    args, runner, model, num_classes, distributed, device, eval_runner=None
+) -> dict:
     """Run the paper's full-graph training protocol.
+
+    For inductive datasets ``runner`` covers the training graph and
+    ``eval_runner`` the full graph used for validation and test.
 
     Returns
     -------
@@ -385,6 +467,8 @@ def train(args, runner, model, num_classes, distributed, device) -> dict:
         History, best checkpoint metrics and timings.
     """
     spec = DATASETS[args.dataset]
+    eval_runner = eval_runner or runner
+    multilabel = bool(spec.get("multilabel"))
     optimizer = torch.optim.Adam(
         model.parameters(), lr=spec["lr"], weight_decay=spec["wd"]
     )
@@ -403,11 +487,8 @@ def train(args, runner, model, num_classes, distributed, device) -> dict:
             torch.cuda.synchronize(device)
         start = time.perf_counter()
         logits = runner()["logits"]
-        loss = (
-            F.cross_entropy(
-                logits[train_mask], runner.labels[train_mask], reduction="sum"
-            )
-            / train_count
+        loss = supervised_loss(
+            logits, runner.labels, train_mask, train_count, multilabel
         )
         optimizer.zero_grad(set_to_none=True)
         loss.backward()
@@ -429,7 +510,9 @@ def train(args, runner, model, num_classes, distributed, device) -> dict:
             continue
         model.eval()
         eval_start = time.perf_counter()
-        val, test = evaluate(runner, distributed, spec["metric"], num_classes)
+        val, test = evaluate(
+            eval_runner, distributed, spec["metric"], num_classes
+        )
         eval_seconds = time.perf_counter() - eval_start
         elapsed = time.perf_counter() - wall_start
         checks.append(
@@ -480,7 +563,15 @@ def run_check(
     me = dist.get_rank()
     model = build_model(args, x.size(1), num_classes, dtype).to(device)
     runner = Distributed(
-        model, x, edge_index, labels, code, part, device, dtype
+        model,
+        x,
+        edge_index,
+        labels,
+        code,
+        part,
+        device,
+        dtype,
+        encoder_first=args.encoder_first,
     )
     reference = None
     if me == 0:
@@ -546,6 +637,90 @@ def run_check(
     return result
 
 
+def training_subgraph(x, edge_index, labels, code):
+    """Inductive training graph: the subgraph induced on training nodes.
+
+    Matches TopoBench's ``load_inductive_node_splits``.
+
+    Returns
+    -------
+    tuple
+        Features, edges, labels and an all-training code, relabelled.
+    """
+    nodes = (code == 0).nonzero().flatten()
+    relabel = torch.full((code.numel(),), -1, dtype=torch.long)
+    relabel[nodes] = torch.arange(nodes.numel())
+    keep = (relabel[edge_index[0]] >= 0) & (relabel[edge_index[1]] >= 0)
+    edges = relabel[edge_index[:, keep]]
+    return (
+        x[nodes],
+        edges,
+        labels[nodes],
+        torch.zeros(nodes.numel(), dtype=torch.long),
+    )
+
+
+def shared_partition(edge_index, num_nodes, world, weight, me, device):
+    """Partition on rank 0 with cell-weighted METIS and broadcast it.
+
+    Returns
+    -------
+    torch.Tensor
+        Worker id of every node, on the CPU.
+    """
+    part = torch.empty(num_nodes, dtype=torch.long, device=device)
+    if me == 0:
+        weights = (
+            None
+            if weight == "none"
+            else vertex_weights(edge_index, num_nodes, "cells")
+        )
+        part.copy_(
+            partition_nodes(
+                edge_index, num_nodes, world, "metis", node_weight=weights
+            )
+        )
+    dist.broadcast(part, src=0)
+    return part.cpu()
+
+
+def make_runner(args, model, graph, part, device, dtype, distributed):
+    """Build the forward runner for one graph in the requested mode.
+
+    Returns
+    -------
+    object
+        Runner exposing ``__call__``, ``labels``, ``code``, ``counts``.
+    """
+    x, edge_index, labels, code = graph
+    if distributed:
+        return Distributed(
+            model,
+            x,
+            edge_index,
+            labels,
+            code,
+            part,
+            device,
+            dtype,
+            encoder_first=args.encoder_first,
+        )
+    if args.mode in ("stream", "first"):
+        return OneGPU(
+            model,
+            x,
+            edge_index,
+            labels,
+            code,
+            args.parts,
+            args.node_weight,
+            device,
+            dtype,
+            kind=args.mode,
+        )
+    return FullGraph(model, x, edge_index, labels, code, device, dtype)
+
+
 def main() -> None:
     """Entry point."""
     args = parse_args()
@@ -567,36 +742,38 @@ def main() -> None:
 
     if distributed and me != 0:
         dist.barrier()  # let rank 0 download, process and write split files
-    x, edge_index, labels = load_dataset(
+    x, edge_index, labels, fixed = load_dataset(
         args.dataset, args.data_dir, args.feature_dim
     )
-    code = split_masks(
-        labels, args.dataset, args.data_dir, args.data_seed, spec["train_prop"]
-    )
+    if spec.get("split") == "fixed":
+        code = fixed
+    else:
+        code = split_masks(
+            labels,
+            args.dataset,
+            args.data_dir,
+            args.data_seed,
+            spec["train_prop"],
+        )
     if distributed and me == 0:
         dist.barrier()
-    num_classes = int(labels.max()) + 1
-    num_nodes = x.size(0)
+    num_classes = (
+        labels.size(1) if spec.get("multilabel") else int(labels.max()) + 1
+    )
+    graphs = {"eval": (x, edge_index, labels, code)}
+    if spec.get("inductive"):
+        graphs["train"] = training_subgraph(x, edge_index, labels, code)
 
-    part = None
+    parts = {}
     partition_seconds = 0.0
     if distributed:
-        part = torch.empty(num_nodes, dtype=torch.long, device=device)
-        if me == 0:
-            start = time.perf_counter()
-            weights = (
-                None
-                if args.node_weight == "none"
-                else vertex_weights(edge_index, num_nodes, "cells")
+        start = time.perf_counter()
+        for key, (gx, gedges, _, _) in graphs.items():
+            parts[key] = shared_partition(
+                gedges, gx.size(0), world, args.node_weight, me, device
             )
-            part.copy_(
-                partition_nodes(
-                    edge_index, num_nodes, world, "metis", node_weight=weights
-                )
-            )
-            partition_seconds = time.perf_counter() - start
-        dist.broadcast(part, src=0)
-        part = part.cpu()
+        partition_seconds = time.perf_counter() - start
+    part = parts.get("eval")
 
     if args.mode == "check":
         result = run_check(
@@ -607,38 +784,40 @@ def main() -> None:
         model = build_model(args, x.size(1), num_classes, dtype).to(device)
         torch.manual_seed(args.seed + 1000 * me)  # dropout stream per process
         setup_start = time.perf_counter()
-        if distributed:
-            runner = Distributed(
-                model, x, edge_index, labels, code, part, device, dtype
-            )
-        elif args.mode in ("stream", "first"):
-            runner = OneGPU(
-                model,
-                x,
-                edge_index,
-                labels,
-                code,
-                args.parts,
-                args.node_weight,
-                device,
-                dtype,
-                kind=args.mode,
-            )
-        else:
-            runner = FullGraph(
-                model, x, edge_index, labels, code, device, dtype
-            )
-        setup_seconds = time.perf_counter() - setup_start
-        setup_bytes = (
-            torch.cuda.max_memory_allocated(device)
-            if device.type == "cuda"
-            else 0
-        )
-        if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
+        setup_seconds, setup_bytes = 0.0, 0
+        phase = "setup"
         try:
+            runners = {
+                key: make_runner(
+                    args,
+                    model,
+                    graph,
+                    parts.get(key),
+                    device,
+                    dtype,
+                    distributed,
+                )
+                for key, graph in graphs.items()
+            }
+            runner = runners.get("train", runners["eval"])
+            eval_runner = runners["eval"]
+            setup_seconds = time.perf_counter() - setup_start
+            setup_bytes = (
+                torch.cuda.max_memory_allocated(device)
+                if device.type == "cuda"
+                else 0
+            )
+            if device.type == "cuda":
+                torch.cuda.reset_peak_memory_stats(device)
+            phase = "train"
             outcome = train(
-                args, runner, model, num_classes, distributed, device
+                args,
+                runner,
+                model,
+                num_classes,
+                distributed,
+                device,
+                eval_runner=eval_runner,
             )
         except torch.cuda.OutOfMemoryError:
             if distributed:
@@ -647,7 +826,9 @@ def main() -> None:
                 "mode": args.mode,
                 "world": world,
                 "oom": True,
-                "setup_seconds": setup_seconds,
+                "oom_phase": phase,
+                "setup_seconds": setup_seconds
+                or time.perf_counter() - setup_start,
                 "setup_peak_gpu_bytes": setup_bytes,
                 "peak_before_oom_bytes": torch.cuda.max_memory_allocated(
                     device
@@ -659,9 +840,10 @@ def main() -> None:
             }
             out = Path(args.out)
             out.mkdir(parents=True, exist_ok=True)
-            name = f"{args.dataset}_{args.mode}_P{world}_seed{args.data_seed}_{args.dtype}.json"
+            label = args.parts if args.mode in ("stream", "first") else world
+            name = f"{args.dataset}_{args.mode}_P{label}_seed{args.data_seed}_{args.dtype}.json"
             (out / name).write_text(json.dumps(report, indent=1))
-            print(f"OOM during training; wrote {out / name}", flush=True)
+            print(f"OOM during {phase}; wrote {out / name}", flush=True)
             return
         train_peak = (
             torch.cuda.max_memory_allocated(device)
@@ -672,6 +854,8 @@ def main() -> None:
         local = {
             "rank": me,
             "cells": runner.counts,
+            "eval_cells": eval_runner.counts,
+            "eval_timings": eval_runner.timings,
             "setup_seconds": setup_seconds,
             "setup_peak_gpu_bytes": setup_bytes,
             "train_peak_gpu_bytes": train_peak,

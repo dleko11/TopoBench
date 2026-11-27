@@ -212,6 +212,45 @@ def partition_nodes(
     return part
 
 
+def _lift_up_to_triangles(
+    edges: torch.Tensor, num_nodes: int, complex_dim: int
+) -> list[torch.Tensor]:
+    """Nodes, edges and triangles as sorted tuples, without building incidences.
+
+    Parameters
+    ----------
+    edges : torch.Tensor
+        Canonical ``(2, m)`` edges in lexicographic order, local ids.
+    num_nodes : int
+        Number of local nodes.
+    complex_dim : int
+        Maximum rank, at most 2.
+
+    Returns
+    -------
+    list[torch.Tensor]
+        Sorted vertex tuples per rank, in TopoBench's clique-lifting order.
+    """
+    simplices = [torch.arange(num_nodes).view(-1, 1)]
+    if complex_dim >= 1:
+        simplices.append(edges.t().contiguous())
+    if complex_dim == 2:
+        graph = ig.Graph(n=num_nodes, edges=edges.t().tolist())
+        found = graph.list_triangles()
+        if found:
+            triangles = (
+                torch.tensor(found, dtype=torch.long).sort(dim=1).values
+            )
+            keys = (
+                triangles[:, 0] * num_nodes + triangles[:, 1]
+            ) * num_nodes + triangles[:, 2]
+            triangles = triangles[torch.argsort(keys)]
+        else:
+            triangles = torch.empty((0, 3), dtype=torch.long)
+        simplices.append(triangles)
+    return simplices
+
+
 def lift_clique_complex(
     edges: torch.Tensor, nodes: torch.Tensor, complex_dim: int
 ) -> tuple[list[torch.Tensor], float]:
@@ -241,15 +280,21 @@ def lift_clique_complex(
     to_local[nodes] = torch.arange(nodes.numel())
 
     start = time.perf_counter()
-    graph = nx.Graph()
-    graph.add_nodes_from(range(nodes.numel()))
-    graph.add_edges_from(to_local[induced].t().tolist())
-    _, simplices, _, _ = build_clique_complex_incidences(
-        graph,
-        complex_dim=complex_dim,
-        signed=False,
-        num_nodes=nodes.numel(),
-    )
+    local_edges = to_local[induced]
+    if complex_dim <= 2:
+        simplices = _lift_up_to_triangles(
+            local_edges, nodes.numel(), complex_dim
+        )
+    else:
+        graph = nx.Graph()
+        graph.add_nodes_from(range(nodes.numel()))
+        graph.add_edges_from(local_edges.t().tolist())
+        _, simplices, _, _ = build_clique_complex_incidences(
+            graph,
+            complex_dim=complex_dim,
+            signed=False,
+            num_nodes=nodes.numel(),
+        )
     seconds = time.perf_counter() - start
     # ``nodes`` is sorted, so mapping local ids back keeps tuples sorted.
     return [nodes[rank_simplices] for rank_simplices in simplices], seconds

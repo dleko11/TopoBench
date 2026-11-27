@@ -24,6 +24,7 @@ import torch
 import torch.distributed as dist
 import torch.distributed.nn.functional as dist_fn
 
+from topobench.distributed.encoder_first import EncoderFirst
 from topobench.distributed.halo import (
     WorkerShard,
     build_shard,
@@ -404,6 +405,10 @@ class DistributedSCN:
         Compute device.
     dtype : torch.dtype
         Compute dtype.
+    encoder_first : bool, optional
+        Evaluate the input encoders from node features (exact; the lifted
+        input features are never built). GraphNorm's statistics become
+        all-reduced sums computed once.
     """
 
     def __init__(
@@ -414,14 +419,24 @@ class DistributedSCN:
         num_nodes: int,
         device: torch.device,
         dtype: torch.dtype,
+        encoder_first: bool = False,
     ) -> None:
         self.model = model
         self.plan = plan
-        self.features = [
-            f.to(device=device, dtype=dtype)
-            for f in lift_shard_features(plan.shard, x_0, num_nodes)
-        ]
-        local_counts = [f.size(0) for f in self.features]
+        self.encoder = None
+        if encoder_first:
+            cells = [c.to(device) for c in plan.shard.owned]
+            self.features = None
+            self.encoder = EncoderFirst(
+                model, x_0.to(device), cells, dtype, reduce=_sum_across
+            )
+            local_counts = [c.size(0) for c in cells]
+        else:
+            self.features = [
+                f.to(device=device, dtype=dtype)
+                for f in lift_shard_features(plan.shard, x_0, num_nodes)
+            ]
+            local_counts = [f.size(0) for f in self.features]
         self.operators = hodge_operators(
             plan.boundary, local_counts, dtype, device
         )
@@ -451,7 +466,26 @@ class DistributedSCN:
             self.plan.boundary,
             self.operators,
             self._graph_norm,
+            encode=None if self.encoder is None else self.encoder.encode,
         )
+
+
+def _sum_across(value: torch.Tensor) -> torch.Tensor:
+    """Sum a tensor over processes without autograd (data statistics).
+
+    Parameters
+    ----------
+    value : torch.Tensor
+        Local tensor.
+
+    Returns
+    -------
+    torch.Tensor
+        Sum over all processes.
+    """
+    value = value.detach().clone()
+    dist.all_reduce(value)
+    return value
 
 
 def all_reduce_gradients(model: torch.nn.Module) -> None:
