@@ -122,6 +122,24 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Override the dataset's weight decay.",
     )
+    parser.add_argument(
+        "--hidden", type=int, default=None, help="Override the hidden size."
+    )
+    parser.add_argument(
+        "--lr-step",
+        type=int,
+        default=50,
+        help="StepLR step size in epochs (TopoBench's 50); 0 = constant lr.",
+    )
+    parser.add_argument("--lr-gamma", type=float, default=0.5)
+    parser.add_argument(
+        "--wandb-project",
+        default=None,
+        help="Log to this wandb project (rank 0 only); unset = no wandb.",
+    )
+    parser.add_argument("--wandb-entity", default="topobench-scalability")
+    parser.add_argument("--wandb-group", default=None)
+    parser.add_argument("--wandb-name", default=None)
     parser.add_argument("--val-every", type=int, default=5)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument(
@@ -242,7 +260,7 @@ def build_model(
     torch.manual_seed(args.seed)
     model = SCNNodeClassifier(
         in_channels,
-        DATASETS[args.dataset]["hidden"],
+        args.hidden or DATASETS[args.dataset]["hidden"],
         num_classes,
         args.n_layers,
     )
@@ -416,19 +434,19 @@ def reduce_sum(value: torch.Tensor, distributed: bool) -> torch.Tensor:
 
 
 def evaluate(
-    runner, distributed: bool, metric: str, num_classes: int
+    runner, distributed: bool, metric: str, num_classes: int, splits=(1, 2)
 ) -> tuple:
-    """Return validation and test metrics.
+    """Return the metric on each requested split (0 train, 1 val, 2 test).
 
     Returns
     -------
-    tuple[float, float]
-        Validation and test metric.
+    tuple[float, ...]
+        One metric per split, in order.
     """
     with torch.no_grad():
         logits = runner()["logits"]
     out = []
-    for split in (1, 2):
+    for split in splits:
         mask = runner.code == split
         chunk_logits, chunk_labels = logits[mask], runner.labels[mask]
         if distributed:
@@ -463,12 +481,21 @@ def supervised_loss(logits, labels, mask, count, multilabel) -> torch.Tensor:
 
 
 def train(
-    args, runner, model, num_classes, distributed, device, eval_runner=None
+    args,
+    runner,
+    model,
+    num_classes,
+    distributed,
+    device,
+    eval_runner=None,
+    run=None,
 ) -> dict:
     """Run the paper's full-graph training protocol.
 
     For inductive datasets ``runner`` covers the training graph and
-    ``eval_runner`` the full graph used for validation and test.
+    ``eval_runner`` the full graph used for validation and test. Each check
+    then also records the training-node metric in both graphs, which
+    separates a train/test structure shift from under- or overfitting.
 
     Returns
     -------
@@ -476,6 +503,7 @@ def train(
         History, best checkpoint metrics and timings.
     """
     spec = DATASETS[args.dataset]
+    inductive = eval_runner is not None and eval_runner is not runner
     eval_runner = eval_runner or runner
     multilabel = bool(spec.get("multilabel"))
     optimizer = torch.optim.Adam(
@@ -485,9 +513,14 @@ def train(
         if args.weight_decay is None
         else args.weight_decay,
     )
-    scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=50, gamma=0.5
+    scheduler = (
+        torch.optim.lr_scheduler.StepLR(
+            optimizer, step_size=args.lr_step, gamma=args.lr_gamma
+        )
+        if args.lr_step > 0
+        else None
     )
+    metric = spec["metric"]
     train_mask = runner.code == 0
     train_count = reduce_sum(train_mask.sum(), distributed).item()
     history, checks = [], []
@@ -507,8 +540,10 @@ def train(
         loss.backward()
         if distributed:
             all_reduce_gradients(model)
+        lr = optimizer.param_groups[0]["lr"]
         optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         seconds = time.perf_counter() - start
@@ -517,34 +552,68 @@ def train(
                 "epoch": epoch,
                 "loss": reduce_sum(loss.detach(), distributed).item(),
                 "seconds": seconds,
+                "lr": lr,
             }
         )
+        if run is not None:
+            run.log(
+                {
+                    "train/loss": history[-1]["loss"],
+                    "lr": lr,
+                    "time/epoch_seconds": seconds,
+                },
+                step=epoch,
+            )
         if epoch % args.val_every:
             continue
         model.eval()
         eval_start = time.perf_counter()
-        val, test = evaluate(
-            eval_runner, distributed, spec["metric"], num_classes
+        train_full, val, test = evaluate(
+            eval_runner, distributed, metric, num_classes, splits=(0, 1, 2)
         )
         eval_seconds = time.perf_counter() - eval_start
-        elapsed = time.perf_counter() - wall_start
-        checks.append(
-            {
-                "epoch": epoch,
-                "val": val,
-                "test": test,
-                "eval_seconds": eval_seconds,
-                "elapsed_seconds": elapsed,
-            }
-        )
+        check = {
+            "epoch": epoch,
+            "val": val,
+            "test": test,
+            "train": train_full,
+            "eval_seconds": eval_seconds,
+        }
+        if inductive:
+            # Same training nodes, evaluated inside the training graph.
+            (check["train_in_train_graph"],) = evaluate(
+                runner, distributed, metric, num_classes, splits=(0,)
+            )
+        check["elapsed_seconds"] = time.perf_counter() - wall_start
+        elapsed = check["elapsed_seconds"]
+        checks.append(check)
+        if run is not None:
+            run.log(
+                {
+                    f"val/{metric}": val,
+                    f"test/{metric}": test,
+                    f"train/{metric}": train_full,
+                    **(
+                        {
+                            f"train/{metric}_in_train_graph": check[
+                                "train_in_train_graph"
+                            ]
+                        }
+                        if inductive
+                        else {}
+                    ),
+                    "time/eval_seconds": eval_seconds,
+                    "time/elapsed_seconds": elapsed,
+                },
+                step=epoch,
+            )
         if val > best["val"]:
-            best = {
-                "epoch": epoch,
-                "val": val,
-                "test": test,
-                "elapsed_seconds": elapsed,
-            }
+            best = dict(check)
             bad_checks = 0
+            if run is not None:
+                run.summary.update(
+                    {f"best/{key}": value for key, value in best.items()}
+                )
         else:
             bad_checks += 1
             if bad_checks >= args.patience:
@@ -770,6 +839,26 @@ def main() -> None:
         )
     if distributed and me == 0:
         dist.barrier()
+    run = None
+    if args.wandb_project and me == 0 and args.mode != "check":
+        import wandb
+
+        Path(args.out).mkdir(parents=True, exist_ok=True)
+        effective = {
+            "lr": spec["lr"] if args.lr is None else args.lr,
+            "weight_decay": spec["wd"]
+            if args.weight_decay is None
+            else args.weight_decay,
+            "hidden": args.hidden or spec["hidden"],
+        }
+        run = wandb.init(
+            entity=args.wandb_entity,
+            project=args.wandb_project,
+            group=args.wandb_group,
+            name=args.wandb_name,
+            config={**vars(args), **effective, "world": world},
+            dir=args.out,
+        )
     num_classes = (
         labels.size(1) if spec.get("multilabel") else int(labels.max()) + 1
     )
@@ -831,8 +920,12 @@ def main() -> None:
                 distributed,
                 device,
                 eval_runner=eval_runner,
+                run=run,
             )
         except torch.cuda.OutOfMemoryError:
+            if run is not None:
+                run.summary.update({"oom": True, "oom_phase": phase})
+                run.finish(exit_code=1)
             if distributed:
                 raise  # torchrun tears the group down; the log records it
             report = {
@@ -908,6 +1001,28 @@ def main() -> None:
             f"wrote {out / name}" + (f" best={best}" if best else ""),
             flush=True,
         )
+        if run is not None:
+            processes = report["processes"]
+            run.summary.update(
+                {
+                    "stopped_epoch": report["history"][-1]["epoch"],
+                    "mean_epoch_seconds": report["mean_epoch_seconds"],
+                    "train_wall_seconds": report["train_wall_seconds"],
+                    "partition_seconds": report["partition_seconds"],
+                    "setup_seconds_max": max(
+                        p["setup_seconds"] for p in processes
+                    ),
+                    "train_peak_gpu_gb_max": max(
+                        p["train_peak_gpu_bytes"] for p in processes
+                    )
+                    / 2**30,
+                    "setup_peak_gpu_gb_max": max(
+                        p["setup_peak_gpu_bytes"] for p in processes
+                    )
+                    / 2**30,
+                }
+            )
+            run.finish()
     if distributed:
         dist.destroy_process_group()
 
