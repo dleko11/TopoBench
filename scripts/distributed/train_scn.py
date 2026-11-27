@@ -113,6 +113,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-layers", type=int, default=1)
     parser.add_argument("--proj-dropout", type=float, default=0.3)
     parser.add_argument("--max-epochs", type=int, default=300)
+    parser.add_argument(
+        "--lr", type=float, default=None, help="Override the dataset's lr."
+    )
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=None,
+        help="Override the dataset's weight decay.",
+    )
     parser.add_argument("--val-every", type=int, default=5)
     parser.add_argument("--patience", type=int, default=5)
     parser.add_argument(
@@ -470,7 +479,11 @@ def train(
     eval_runner = eval_runner or runner
     multilabel = bool(spec.get("multilabel"))
     optimizer = torch.optim.Adam(
-        model.parameters(), lr=spec["lr"], weight_decay=spec["wd"]
+        model.parameters(),
+        lr=spec["lr"] if args.lr is None else args.lr,
+        weight_decay=spec["wd"]
+        if args.weight_decay is None
+        else args.weight_decay,
     )
     scheduler = torch.optim.lr_scheduler.StepLR(
         optimizer, step_size=50, gamma=0.5
